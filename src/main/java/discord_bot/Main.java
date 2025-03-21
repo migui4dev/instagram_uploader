@@ -65,10 +65,6 @@ public class Main {
 			commands.addCommands(Commands.slash("add_image", "Adds an attachment to queue of attachments for an album.")
 					.addOption(OptionType.ATTACHMENT, "attachment", "Attachment to add to queue.", true));
 
-			commands.addCommands(Commands.slash("add_video", "Adds an attachment to queue of attachments for an album.")
-					.addOption(OptionType.ATTACHMENT, "attachment", "Attachment to add to queue.", true)
-					.addOption(OptionType.ATTACHMENT, "cover", "The cover of attachment to add to queue.", true));
-
 			commands.addCommands(Commands.slash("clear_queue", "Clear the queue of attachments."));
 
 			commands.queue();

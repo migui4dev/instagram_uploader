@@ -41,7 +41,7 @@ public class Bot extends ListenerAdapter {
 	private Member memberUsingBot;
 	private IGClient client;
 
-	private final ArrayList<MyAttachment> pendingMediaFiles = new ArrayList<>();
+	private final ArrayList<MyAttachment> filesQueue = new ArrayList<>();
 	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
 	@Override
@@ -82,34 +82,17 @@ public class Bot extends ListenerAdapter {
 			Attachment attachment = event.getOption("attachment").getAsAttachment();
 
 			if (!attachment.isImage()) {
-				sendMessage(event, "You did not send an image.");
+				sendMessage(event, "That file extension does not have support.");
 				return;
 			}
 
 			Image image = new Image(attachment);
-			pendingMediaFiles.add(image);
+			filesQueue.add(image);
 			sendMessage(event, "Image added to queue successfully.");
-		}
-		case "add_video" -> {
-			Attachment attachment = event.getOption("attachment").getAsAttachment();
-			Attachment cover = event.getOption("cover").getAsAttachment();
-
-			if (!attachment.isVideo()) {
-				sendMessage(event, "You did not send a video.");
-				return;
-			} else if (!cover.isImage()) {
-				sendMessage(event, "You did not send a cover image.");
-				return;
-			}
-
-			Video video = new Video(attachment, cover);
-			pendingMediaFiles.add(video);
-
-			sendMessage(event, "Video added to queue successfully.");
 		}
 
 		case "clear_queue" -> {
-			pendingMediaFiles.clear();
+			filesQueue.clear();
 			sendMessage(event, "Attachment queue cleared successfully.");
 		}
 		case "upload_post", "upload_scheduled_post" -> {
@@ -308,7 +291,7 @@ public class Bot extends ListenerAdapter {
 		int contImg = 1;
 		int contVideo = 1;
 
-		for (MyAttachment attachment : pendingMediaFiles) {
+		for (MyAttachment attachment : filesQueue) {
 			if (attachment.getAttachment().isImage()) {
 				Image image = (Image) attachment;
 				File imageFile = processAttachment(event, image);
@@ -348,7 +331,7 @@ public class Bot extends ListenerAdapter {
 			return null;
 		}).join();
 
-		for (MyAttachment attachment : pendingMediaFiles) {
+		for (MyAttachment attachment : filesQueue) {
 			if (attachment.getAttachment().isImage()) {
 				File f = new File(attachment.getAttachment().getId());
 
@@ -371,7 +354,7 @@ public class Bot extends ListenerAdapter {
 			}
 		}
 
-		pendingMediaFiles.clear();
+		filesQueue.clear();
 
 	}
 
