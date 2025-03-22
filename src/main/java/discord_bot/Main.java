@@ -10,7 +10,11 @@ import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 import net.dv8tion.jda.internal.utils.JDALogger;
 
 public class Main {
+	private static final float VERSION = 1.0f;
+
 	public static void main(String[] args) {
+		System.out.printf("VERSION.%s %n", String.valueOf(VERSION));
+
 		try {
 			Dotenv dotenv = Dotenv.configure().directory("config/.env").load();
 			String token = dotenv.get("TOKEN");
@@ -49,7 +53,7 @@ public class Main {
 					.addOption(OptionType.STRING, "captions", "The captions that you set for the post.", true));
 
 			// STORIES
-			commands.addCommands(Commands.slash("upload_storie_post", "Post a video on your Instagram's daily stories.")
+			commands.addCommands(Commands.slash("upload_storie", "Post a video on your Instagram's daily stories.")
 					.addOption(OptionType.ATTACHMENT, "attachment", "The file you want for the storie.", true)
 					.addOption(OptionType.ATTACHMENT, "cover", "The cover you want for the storie.", false));
 

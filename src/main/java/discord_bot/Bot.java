@@ -168,20 +168,16 @@ public class Bot extends ListenerAdapter {
 	}
 
 	private void login(SlashCommandInteractionEvent event, String username, String password, String verificationCode) {
-		LoginHandler twoFactorHandler = (client, response) -> {
-			return IGChallengeUtils.resolveTwoFactor(client, response, () -> verificationCode);
-		};
+		LoginHandler challengeHandler = (client, response) -> IGChallengeUtils.resolveChallenge(client, response,
+				() -> verificationCode);
 
 		try {
-			if (verificationCode == null) {
-				client = IGClient.builder().username(username).password(password).login();
-			} else {
-				client = IGClient.builder().username(username).password(password).onTwoFactor(twoFactorHandler).login();
-			}
+			client = IGClient.builder().username(username).password(password).onChallenge(challengeHandler).login();
 
 			sendMessage(event, "Logged-in successfully.");
 		} catch (IGLoginException e) {
 			sendMessage(event, String.format("I could not log-in with %s %n", username));
+			e.printStackTrace();
 		}
 
 	}
