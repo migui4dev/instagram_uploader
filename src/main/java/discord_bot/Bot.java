@@ -12,6 +12,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.time.DateTimeException;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -24,7 +25,6 @@ import com.github.instagram4j.instagram4j.IGClient;
 import com.github.instagram4j.instagram4j.IGClient.Builder.LoginHandler;
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarInfo;
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarPhoto;
-import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarVideo;
 import com.github.instagram4j.instagram4j.exceptions.IGLoginException;
 import com.github.instagram4j.instagram4j.utils.IGChallengeUtils;
 
@@ -38,11 +38,15 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
+	private static final String VERSION = "1.12";
+	private static final LocalDate LAST_UPDATE = LocalDate.now();
+
+	private final ArrayList<MyAttachment> queue = new ArrayList<>();
+	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+	private boolean scheduledTask = false;
 	private Member memberUsingBot;
 	private IGClient client;
-
-	private final ArrayList<MyAttachment> filesQueue = new ArrayList<>();
-	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
 	@Override
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
@@ -76,7 +80,14 @@ public class Bot extends ListenerAdapter {
 			login(event, username, password, verificationCode);
 		}
 		case "logout" -> {
+			if (client == null) {
+				return;
+			}
+
 			logout(event);
+		}
+		case "version" -> {
+			sendMessage(event, getVersionMessage());
 		}
 		case "add_image" -> {
 			Attachment attachment = event.getOption("attachment").getAsAttachment();
@@ -86,13 +97,17 @@ public class Bot extends ListenerAdapter {
 				return;
 			}
 
-			Image image = new Image(attachment);
-			filesQueue.add(image);
+			queue.add(new Image(attachment));
 			sendMessage(event, "Image added to queue successfully.");
 		}
 
 		case "clear_queue" -> {
-			filesQueue.clear();
+			if (scheduledTask) {
+				sendMessage(event, "There is a scheduled post ready to upload, you cannot clear the queue.");
+				return;
+			}
+
+			queue.clear();
 			sendMessage(event, "Attachment queue cleared successfully.");
 		}
 		case "upload_post", "upload_scheduled_post" -> {
@@ -122,9 +137,10 @@ public class Bot extends ListenerAdapter {
 						minuteValue);
 
 				if (dateToSchedule.isAfter(now)) {
-					sendMessage(event, String.format("Scheduled post for: %s.", formatDate(dateToSchedule)));
+					sendMessage(event, String.format("Scheduled post for: %s.", formatLocalDateTime(dateToSchedule)));
 				}
 
+				scheduledTask = true;
 				scheduler.schedule(() -> {
 					if (attachment.isImage()) {
 						Image image = new Image(attachment, captions);
@@ -137,6 +153,7 @@ public class Bot extends ListenerAdapter {
 
 			} catch (DateTimeException e) {
 				sendMessage(event, "Bad formed date.");
+				scheduledTask = false;
 			}
 
 		}
@@ -162,7 +179,16 @@ public class Bot extends ListenerAdapter {
 		}
 	}
 
-	private String formatDate(LocalDateTime date) {
+	public static String getVersionMessage() {
+		return String.format("V.%s - Last time updated: %s", VERSION, formatLocalDate(LAST_UPDATE));
+	}
+
+	private static String formatLocalDate(LocalDate date) {
+		DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+		return date.format(dtf);
+	}
+
+	private static String formatLocalDateTime(LocalDateTime date) {
 		DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yyyy, HH:mm");
 		return date.format(dtf);
 	}
@@ -173,7 +199,6 @@ public class Bot extends ListenerAdapter {
 
 		try {
 			client = IGClient.builder().username(username).password(password).onChallenge(challengeHandler).login();
-
 			sendMessage(event, "Logged-in successfully.");
 		} catch (IGLoginException e) {
 			sendMessage(event, String.format("I could not log-in with %s %n", username));
@@ -283,11 +308,9 @@ public class Bot extends ListenerAdapter {
 
 	private void uploadAlbum(SlashCommandInteractionEvent event, String captions) {
 		ArrayList<SidecarInfo> album = new ArrayList<>();
-
 		int contImg = 1;
-		int contVideo = 1;
 
-		for (MyAttachment attachment : filesQueue) {
+		for (MyAttachment attachment : queue) {
 			if (attachment.getAttachment().isImage()) {
 				Image image = (Image) attachment;
 				File imageFile = processAttachment(event, image);
@@ -298,19 +321,6 @@ public class Bot extends ListenerAdapter {
 				}
 
 				album.add(SidecarPhoto.from(imageFile));
-			} else {
-				Video video = (Video) attachment;
-				File videoFile = processAttachment(event, video);
-				File coverFile = processAttachment(event, new Image(video.getAttachment()));
-				System.out.printf("Vídeo: %d %n", contVideo++);
-
-				if (videoFile == null) {
-					return;
-				} else if (coverFile == null) {
-					return;
-				}
-
-				album.add(SidecarVideo.from(videoFile, coverFile));
 			}
 		}
 
@@ -327,7 +337,7 @@ public class Bot extends ListenerAdapter {
 			return null;
 		}).join();
 
-		for (MyAttachment attachment : filesQueue) {
+		for (MyAttachment attachment : queue) {
 			if (attachment.getAttachment().isImage()) {
 				File f = new File(attachment.getAttachment().getId());
 
@@ -350,7 +360,7 @@ public class Bot extends ListenerAdapter {
 			}
 		}
 
-		filesQueue.clear();
+		queue.clear();
 
 	}
 

@@ -1,0 +1,2 @@
+- Añadir soporte para posts programadas, guardadas en una BD de SQLite.
+- Añadir soporte para que se puedan subir álbumes programados.

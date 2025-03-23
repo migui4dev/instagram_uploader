@@ -10,10 +10,9 @@ import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 import net.dv8tion.jda.internal.utils.JDALogger;
 
 public class Main {
-	private static final float VERSION = 1.0f;
 
 	public static void main(String[] args) {
-		System.out.printf("VERSION.%s %n", String.valueOf(VERSION));
+		System.out.println(Bot.getVersionMessage());
 
 		try {
 			Dotenv dotenv = Dotenv.configure().directory("config/.env").load();
@@ -70,6 +69,8 @@ public class Main {
 					.addOption(OptionType.ATTACHMENT, "attachment", "Attachment to add to queue.", true));
 
 			commands.addCommands(Commands.slash("clear_queue", "Clear the queue of attachments."));
+
+			commands.addCommands(Commands.slash("version", "It shows you the current bot's version."));
 
 			commands.queue();
 
