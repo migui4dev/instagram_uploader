@@ -12,11 +12,12 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.time.DateTimeException;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Optional;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -28,9 +29,7 @@ import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.Sideca
 import com.github.instagram4j.instagram4j.exceptions.IGLoginException;
 import com.github.instagram4j.instagram4j.utils.IGChallengeUtils;
 
-import discord_bot.model.Image;
-import discord_bot.model.MyAttachment;
-import discord_bot.model.Video;
+import discord_bot.model.Messages;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message.Attachment;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -38,10 +37,12 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	private static final String VERSION = "1.12";
-	private static final LocalDate LAST_UPDATE = LocalDate.now();
+	private static final String VERSION = "1.2";
 
-	private final ArrayList<MyAttachment> queue = new ArrayList<>();
+	private final List<Attachment> attQueue = new ArrayList<>();
+	private final List<File> fileQueue = new ArrayList<>();
+	private final Map<String, Object> parameters = new ConcurrentHashMap<>();
+
 	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
 	private boolean scheduledTask = false;
@@ -51,157 +52,185 @@ public class Bot extends ListenerAdapter {
 	@Override
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
 		if (memberUsingBot != null && !memberUsingBot.equals(event.getMember())) {
-			sendMessage(event, String.format("You cannot use the bot, because %s is already using it.",
-					memberUsingBot.getNickname()));
+			sendMessage(event, Messages.SOMEONE_USING_BOT.getMessage());
 			return;
 		}
 
 		event.deferReply(true).queue();
 		this.memberUsingBot = event.getMember();
 
+		// Desde aquí, únicamente se recogerán los parámetros y se llamarán a las
+		// funciones correspondientes.
 		switch (event.getName().toLowerCase()) {
 		case "login" -> {
 			if (client != null && client.isLoggedIn()) {
-				sendMessage(event, "You are already logged-in.");
+				sendMessage(event, Messages.ALREADY_LOGGED.getMessage());
 				return;
 			}
-
-			String username, password, verificationCode;
-
-			username = event.getOption("username").getAsString().strip();
-			password = event.getOption("password").getAsString().strip();
 
 			try {
-				verificationCode = event.getOption("verification_code").getAsString().strip();
-			} catch (NullPointerException e) {
-				verificationCode = null;
-			}
-
-			login(event, username, password, verificationCode);
-		}
-		case "logout" -> {
-			if (client == null) {
+				processParameters(event.getOptions());
+			} catch (Exception e) {
+				e.printStackTrace();
+				sendMessage(event, Messages.GENERIC.getMessage());
 				return;
 			}
 
-			logout(event);
+			login(event, parameters);
 		}
-		case "version" -> {
-			sendMessage(event, getVersionMessage());
+		case "logout" -> {
+			logout(event);
 		}
 		case "add_image" -> {
 			Attachment attachment = event.getOption("attachment").getAsAttachment();
-
-			if (!attachment.isImage()) {
-				sendMessage(event, "That file extension does not have support.");
-				return;
-			}
-
-			queue.add(new Image(attachment));
-			sendMessage(event, "Image added to queue successfully.");
+			addImageToQueue(event, attachment);
 		}
-
 		case "clear_queue" -> {
-			if (scheduledTask) {
-				sendMessage(event, "There is a scheduled post ready to upload, you cannot clear the queue.");
+			clearQueue(event);
+		}
+		case "upload_post" -> {
+			try {
+				processParameters(event.getOptions());
+			} catch (Exception e) {
+				e.printStackTrace();
+				sendMessage(event, e.getMessage());
 				return;
 			}
 
-			queue.clear();
-			sendMessage(event, "Attachment queue cleared successfully.");
-		}
-		case "upload_post", "upload_scheduled_post" -> {
-			LocalDateTime now = LocalDateTime.now();
-			Attachment attachment = event.getOption("attachment").getAsAttachment();
-			String captions = event.getOption("captions").getAsString();
+			Attachment attachment = (Attachment) parameters.get("attachment");
+			Attachment cover = parameters.containsKey("cover") ? (Attachment) parameters.get("cover") : null;
 
-			Optional<OptionMapping> cover = Optional.ofNullable(event.getOption("cover"));
-			Attachment coverValue = cover.isPresent() ? cover.get().getAsAttachment() : null;
+			parameters.put("is_storie", false);
+			parameters.put("is_video", attachment.isVideo());
 
-			Optional<OptionMapping> day = Optional.ofNullable(event.getOption("day"));
-			Optional<OptionMapping> month = Optional.ofNullable(event.getOption("month"));
-			Optional<OptionMapping> year = Optional.ofNullable(event.getOption("year"));
+			File attFile = saveFile(event, attachment);
+			File coverFile = saveFile(event, cover);
 
-			Optional<OptionMapping> hour = Optional.ofNullable(event.getOption("hour"));
-			Optional<OptionMapping> minute = Optional.ofNullable(event.getOption("minute"));
+			parameters.put("attachment", attFile);
+			parameters.put("cover", coverFile);
 
-			int dayValue = day.isPresent() ? day.get().getAsInt() : now.getDayOfMonth();
-			int monthValue = month.isPresent() ? month.get().getAsInt() : now.getMonthValue();
-			int yearValue = year.isPresent() ? year.get().getAsInt() : now.getYear();
-
-			int hourValue = hour.isPresent() ? hour.get().getAsInt() : now.getHour();
-			int minuteValue = minute.isPresent() ? minute.get().getAsInt() : now.getMinute();
-
-			try {
-				LocalDateTime dateToSchedule = LocalDateTime.of(yearValue, monthValue, dayValue, hourValue,
-						minuteValue);
-
-				if (dateToSchedule.isAfter(now)) {
-					sendMessage(event, String.format("Scheduled post for: %s.", formatLocalDateTime(dateToSchedule)));
-				}
-
-				scheduledTask = true;
-				scheduler.schedule(() -> {
-					if (attachment.isImage()) {
-						Image image = new Image(attachment, captions);
-						uploadImage(event, image, false);
-					} else {
-						Video video = new Video(attachment, coverValue, captions);
-						uploadVideo(event, video, false);
-					}
-				}, Duration.between(now, dateToSchedule).toSeconds(), TimeUnit.SECONDS);
-
-			} catch (DateTimeException e) {
-				sendMessage(event, "Bad formed date.");
-				scheduledTask = false;
-			}
-
+			uploadFile(event, parameters);
 		}
 		case "upload_storie" -> {
-			Attachment attachment = event.getOption("attachment").getAsAttachment();
-
-			Optional<OptionMapping> cover = Optional.ofNullable(event.getOption("cover"));
-			Attachment coverValue = cover.isPresent() ? cover.get().getAsAttachment() : null;
-
-			if (attachment.isImage()) {
-				Image image = new Image(attachment);
-				uploadImage(event, image, true);
-			} else {
-				Video video = new Video(attachment, coverValue);
-				uploadVideo(event, video, true);
+			try {
+				processParameters(event.getOptions());
+				Attachment att = (Attachment) parameters.get("attachment");
+				parameters.put("is_storie", true);
+				parameters.put("is_video", att.isVideo());
+				File attFile = saveFile(event, att);
+				parameters.put("attachment", attFile);
+			} catch (Exception e) {
+				e.printStackTrace();
+				sendMessage(event, e.getMessage());
+				return;
 			}
+
+			uploadFile(event, parameters);
 		}
 		case "upload_album" -> {
 			String captions = event.getOption("captions").getAsString();
 			uploadAlbum(event, captions);
+			clearQueue(event);
+		}
+		case "upload_scheduled_post", "upload_scheduled_album" -> {
+			try {
+				// No se llama al método "saveFile()", porque al añadir a la cola las imágenes,
+				// ya se llama a ese método.
+				processParameters(event.getOptions());
+
+				Attachment att = parameters.containsKey("attachment") ? (Attachment) parameters.get("attachment")
+						: null;
+
+				parameters.put("is_video", att != null ? att.isVideo() : false);
+				parameters.put("is_storie", false);
+
+				if (att != null) {
+					File f = saveFile(event, att);
+					parameters.put("attachment", f);
+				}
+
+				uploadScheduled(event, parameters);
+			} catch (Exception e) {
+				e.printStackTrace();
+				sendMessage(event, e.getMessage());
+			}
 		}
 
 		}
 	}
 
 	public static String getVersionMessage() {
-		return String.format("V.%s - Last time updated: %s", VERSION, formatLocalDate(LAST_UPDATE));
+		return String.format("Versión %s", VERSION);
 	}
 
-	private static String formatLocalDate(LocalDate date) {
-		DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-		return date.format(dtf);
+	private LocalDateTime wellFormedDate(int year, int month, int day, int hour, int minute) {
+		try {
+			LocalDateTime ldt = LocalDateTime.of(year, month, day, hour, minute);
+			return ldt;
+		} catch (DateTimeException e) {
+			return null;
+		}
 	}
 
 	private static String formatLocalDateTime(LocalDateTime date) {
-		DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yyyy, HH:mm");
+		DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 		return date.format(dtf);
 	}
 
-	private void login(SlashCommandInteractionEvent event, String username, String password, String verificationCode) {
+	private void processParameters(List<OptionMapping> options) throws Exception {
+		parameters.clear();
+
+		for (OptionMapping o : options) {
+			Object value;
+
+			switch (o.getType()) {
+			case INTEGER -> {
+				value = o.getAsInt();
+			}
+			case STRING -> {
+				value = o.getAsString();
+			}
+			case ATTACHMENT -> {
+				value = o.getAsAttachment();
+			}
+			default -> {
+				throw new Exception("Invalid argument type.");
+			}
+			}
+
+			parameters.put(o.getName(), value);
+		}
+
+		parameters.put("is_album", !parameters.containsKey("attachment"));
+	}
+
+	private String processCaptions(String captions) {
+		if (!captions.contains("%s")) {
+			return captions;
+		}
+
+		return captions.replaceAll("%s", "\r\n");
+	}
+
+	private void login(SlashCommandInteractionEvent event, Map<String, Object> parameters) {
+		String username = (String) parameters.get("username");
+		String password = (String) parameters.get("password");
+		String verificationCode = parameters.containsKey("verification_code")
+				? (String) parameters.get("verification_code")
+				: null;
+
 		LoginHandler challengeHandler = (client, response) -> IGChallengeUtils.resolveChallenge(client, response,
-				() -> verificationCode);
+				() -> verificationCode != null ? verificationCode : "");
 
 		try {
-			client = IGClient.builder().username(username).password(password).onChallenge(challengeHandler).login();
-			sendMessage(event, "Logged-in successfully.");
+			if (verificationCode == null) {
+				client = IGClient.builder().username(username).password(password).login();
+			} else {
+				client = IGClient.builder().username(username).password(password).onChallenge(challengeHandler).login();
+			}
+			sendMessage(event, Messages.SUCCESS_LOGIN.getMessage());
 		} catch (IGLoginException e) {
-			sendMessage(event, String.format("I could not log-in with %s %n", username));
+			sendMessage(event, Messages.FAILED_LOGIN.getMessage());
 			e.printStackTrace();
 		}
 
@@ -210,183 +239,203 @@ public class Bot extends ListenerAdapter {
 	private void logout(SlashCommandInteractionEvent event) {
 		client = null;
 		memberUsingBot = null;
-		sendMessage(event, "Logged-out successfully.");
+		sendMessage(event, Messages.SUCCESS_LOGOUT.getMessage());
 	}
 
-	private void uploadFile(SlashCommandInteractionEvent event, File attachment, File cover, String captions,
-			boolean isStorie, boolean isVideo) {
-		if (isVideo) {
-			if (isStorie) {
-				client.actions().story().uploadVideo(attachment, cover).thenAccept(t -> {
-					sendMessage(event, "Storie (video) uploaded successfully.");
-				}).exceptionally(t -> {
-					sendMessage(event, String.format(
-							"An error has ocurred: %s. (Probably the resolution is not allowed).", t.getMessage()));
-					t.printStackTrace();
-					return null;
-				}).join();
-			} else {
-				client.actions().timeline().uploadVideo(attachment, cover, captions).thenAccept(t -> {
-					sendMessage(event, "Post (video) uploaded successfully.");
-				}).exceptionally(t -> {
-					sendMessage(event, String.format(
-							"An error has ocurred: %s. (Probably the resolution is not allowed).", t.getMessage()));
-					t.printStackTrace();
-					return null;
-				}).join();
+	private void uploadFile(SlashCommandInteractionEvent event, Map<String, Object> parameters) {
+		try {
+			if (client == null || !client.isLoggedIn()) {
+				sendMessage(event, "No hay una sesión iniciada.");
+				return;
 			}
-		} else {
-			if (isStorie) {
-				client.actions().story().uploadPhoto(attachment).thenAccept(t -> {
-					sendMessage(event, "Storie (image) uploaded successfully.");
-				}).exceptionally(t -> {
-					sendMessage(event, String.format(
-							"An error has ocurred: %s. (Probably the resolution is not allowed).", t.getMessage()));
-					t.printStackTrace();
-					return null;
-				}).join();
+
+			File attachment = (File) parameters.get("attachment");
+			File cover = parameters.get("cover") != null ? (File) parameters.get("cover_file") : attachment;
+
+			String captions = parameters.containsKey("captions") ? parameters.get("captions").toString() : "";
+			captions = String.format("%s", processCaptions(captions));
+
+			boolean isStorie = (boolean) parameters.get("is_storie");
+			boolean isVideo = (boolean) parameters.get("is_video");
+
+			if (isVideo) {
+				if (isStorie) {
+					client.actions().story().uploadVideo(attachment, cover).thenAccept(t -> {
+						sendMessage(event, Messages.VIDEO_STORIE_UPLOADED.getMessage());
+					}).exceptionally(t -> {
+						sendMessage(event,
+								String.format(
+										"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).",
+										t.getMessage()));
+						t.printStackTrace();
+						return null;
+					}).join();
+				} else {
+					client.actions().timeline().uploadVideo(attachment, cover, captions).thenAccept(t -> {
+						sendMessage(event, Messages.VIDEO_POST_UPLOADED.getMessage());
+					}).exceptionally(t -> {
+						sendMessage(event,
+								String.format(
+										"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).",
+										t.getMessage()));
+						t.printStackTrace();
+						return null;
+					}).join();
+				}
 			} else {
-				client.actions().timeline().uploadPhoto(attachment, captions).thenAccept(t -> {
-					sendMessage(event, "Post (image) uploaded successfully.");
-				}).exceptionally(t -> {
-					sendMessage(event, String.format(
-							"An error has ocurred: %s. (Probably the resolution is not allowed).", t.getMessage()));
-					t.printStackTrace();
-					return null;
-				}).join();
+				if (isStorie) {
+					client.actions().story().uploadPhoto(attachment).thenAccept(t -> {
+						sendMessage(event, Messages.IMAGE_STORIE_UPLOADED.getMessage());
+					}).exceptionally(t -> {
+						sendMessage(event,
+								String.format(
+										"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).",
+										t.getMessage()));
+						t.printStackTrace();
+						return null;
+					}).join();
+				} else {
+					client.actions().timeline().uploadPhoto(attachment, captions).thenAccept(t -> {
+						sendMessage(event, Messages.IMAGE_POST_UPLOADED.getMessage());
+					}).exceptionally(t -> {
+						sendMessage(event,
+								String.format(
+										"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).",
+										t.getMessage()));
+						t.printStackTrace();
+						return null;
+					}).join();
+				}
 			}
-		}
 
-	}
+			if (attachment.exists()) {
+				attachment.delete();
+			}
 
-	private void uploadImage(SlashCommandInteractionEvent event, Image image, boolean isStorie) {
-		if (!image.getAttachment().isImage()) {
-			sendMessage(event, "Not supported attachment's extension.");
-			return;
-		}
-
-		File imageFile = processAttachment(event, image);
-
-		if (imageFile == null) {
-			return;
-		}
-
-		uploadFile(event, imageFile, null, image.getCaptions(), isStorie, false);
-
-		if (imageFile.exists()) {
-			imageFile.delete();
-		}
-
-	}
-
-	private void uploadVideo(SlashCommandInteractionEvent event, Video video, boolean isStorie) {
-		if (!video.getAttachment().isVideo()) {
-			sendMessage(event, "Not supported attachment's extension.");
-			return;
-		}
-
-		File videoFile = processAttachment(event, video);
-		File coverFile = processAttachment(event, new Image(video.getCover()));
-
-		if (videoFile == null) {
-			return;
-		} else if (coverFile == null) {
-			return;
-		}
-
-		uploadFile(event, videoFile, coverFile, video.getCaptions(), isStorie, true);
-
-		if (videoFile.exists()) {
-			videoFile.delete();
-		}
-
-		if (coverFile.exists()) {
-			coverFile.delete();
+			if (cover.exists()) {
+				cover.delete();
+			}
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
 		}
 
 	}
 
 	private void uploadAlbum(SlashCommandInteractionEvent event, String captions) {
-		ArrayList<SidecarInfo> album = new ArrayList<>();
-		int contImg = 1;
-
-		for (MyAttachment attachment : queue) {
-			if (attachment.getAttachment().isImage()) {
-				Image image = (Image) attachment;
-				File imageFile = processAttachment(event, image);
-				System.out.printf("Imagen: %d %n", contImg++);
-
-				if (imageFile == null) {
-					return;
-				}
-
-				album.add(SidecarPhoto.from(imageFile));
-			}
-		}
-
-		if (album.size() <= 1) {
-			sendMessage(event, "You only can upload an album with 2 or more attachments.");
+		if (client == null || !client.isLoggedIn()) {
+			sendMessage(event, "No hay una sesión iniciada.");
 			return;
 		}
 
-		client.actions().timeline().uploadAlbum(album, captions).thenAccept(t -> {
-			sendMessage(event, "Album uploaded successfully.");
+		final List<SidecarInfo> album = new ArrayList<>();
+
+		for (File f : fileQueue) {
+			album.add(SidecarPhoto.from(f));
+		}
+
+		if (album.size() <= 1) {
+			sendMessage(event, Messages.ALBUM_WRONG_SIZE.getMessage());
+			return;
+		}
+
+		client.actions().timeline().uploadAlbum(album, String.format("%s", processCaptions(captions))).thenAccept(t -> {
+			sendMessage(event, Messages.ALBUM_UPLOADED.getMessage());
 		}).exceptionally((t) -> {
-			sendMessage(event, String.format("An error has ocurred: %s", t.getMessage()));
+			sendMessage(event, String.format("Ocurrió un error: %s", t.getMessage()));
 			t.printStackTrace();
 			return null;
 		}).join();
-
-		for (MyAttachment attachment : queue) {
-			if (attachment.getAttachment().isImage()) {
-				File f = new File(attachment.getAttachment().getId());
-
-				if (f.exists()) {
-					f.delete();
-				}
-			} else if (attachment.getAttachment().isVideo()) {
-				Video v = (Video) attachment;
-
-				File videoFile = new File(v.getAttachment().getId());
-				File coverFile = new File(v.getCover().getId());
-
-				if (videoFile.exists()) {
-					videoFile.delete();
-				}
-
-				if (coverFile.exists()) {
-					coverFile.delete();
-				}
-			}
-		}
-
-		queue.clear();
-
 	}
 
-	private File processAttachment(SlashCommandInteractionEvent event, MyAttachment att) {
-		if (att == null || att.getAttachment() == null) {
+	private void uploadScheduled(SlashCommandInteractionEvent event, Map<String, Object> parameters) {
+		scheduledTask = true;
+		LocalDateTime now = LocalDateTime.now();
+
+		int day = parameters.containsKey("day") ? (int) parameters.get("day") : now.getDayOfMonth();
+		int month = parameters.containsKey("month") ? (int) parameters.get("month") : now.getMonthValue();
+		int year = parameters.containsKey("year") ? (int) parameters.get("year") : now.getYear();
+
+		int hour = parameters.containsKey("hour") ? (int) parameters.get("hour") : now.getHour();
+		int minute = parameters.containsKey("minute") ? (int) parameters.get("minute") : now.getMinute();
+
+		String captions = processCaptions(parameters.get("captions").toString());
+		boolean isAlbum = (boolean) parameters.get("is_album");
+
+		LocalDateTime dateToSchedule = wellFormedDate(year, month, day, hour, minute);
+
+		if (dateToSchedule == null) {
+			sendMessage(event, "Fecha mal formada.");
+			return;
+		}
+
+		dateToSchedule.minusSeconds(dateToSchedule.getSecond());
+		System.out.println(formatLocalDateTime(dateToSchedule));
+
+		scheduler.schedule(() -> {
+			if (isAlbum) {
+				uploadAlbum(event, captions);
+				clearQueue(event);
+			} else {
+				uploadFile(event, parameters);
+			}
+
+			scheduledTask = false;
+		}, Duration.between(now, dateToSchedule).toSeconds(), TimeUnit.SECONDS);
+
+		sendMessage(event, String.format("%s programado para: %s.", isAlbum ? "Álbum" : "Post",
+				formatLocalDateTime(dateToSchedule)));
+	}
+
+	private void addImageToQueue(SlashCommandInteractionEvent event, Attachment att) {
+		if (!att.isImage()) {
+			return;
+		}
+
+		File f = saveFile(event, att);
+		fileQueue.add(f);
+		sendMessage(event, Messages.ATTACHMENT_ADDED_QUEUE.getMessage());
+	}
+
+	private File saveFile(SlashCommandInteractionEvent event, Attachment att) {
+		// Se comprueba si es nula, puesto que puede ser una "cover".
+		if (att == null) {
 			return null;
 		}
 
-		File f = new File(att.getAttachment().getId());
+		File f = new File(att.getId());
 
 		try (DataOutputStream dosAtt = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f)))) {
-			URL urlAtt = new URI(att.getAttachment().getUrl()).toURL();
+			URL urlAtt = new URI(att.getUrl()).toURL();
 			InputStream is = urlAtt.openStream();
 
 			dosAtt.write(is.readAllBytes());
+
+			return f;
 		} catch (MalformedURLException | URISyntaxException e) {
 			e.printStackTrace();
-			sendMessage(event, "Something went wrong...");
-			return null;
+			sendMessage(event, Messages.GENERIC.getMessage());
 		} catch (IOException e) {
 			e.printStackTrace();
-			sendMessage(event, "File error.");
-			return null;
+			sendMessage(event, Messages.GENERIC_FILE_ERROR.getMessage());
 		}
 
-		return f;
+		return null;
+	}
+
+	private void clearQueue(SlashCommandInteractionEvent event) {
+		if (scheduledTask) {
+			sendMessage(event, Messages.CANNOT_CLEAR_QUEUE.getMessage());
+			return;
+		}
+
+		for (File f : fileQueue) {
+			if (f.exists()) {
+				f.delete();
+			}
+		}
+
+		attQueue.clear();
+		sendMessage(event, Messages.CLEARED_QUEUE.getMessage());
 	}
 
 	private void sendMessage(SlashCommandInteractionEvent event, String message) {

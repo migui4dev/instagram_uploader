@@ -1,2 +1,3 @@
 - Añadir soporte para posts programadas, guardadas en una BD de SQLite.
-- Añadir soporte para que se puedan subir álbumes programados.
++ Añadir soporte para que se puedan subir álbumes programados.
++ Dejar que en la biografía se puedan poner enters. Es decir, con """ """
