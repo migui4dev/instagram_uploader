@@ -11,16 +11,12 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.time.DateTimeException;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import com.github.instagram4j.instagram4j.IGClient;
 import com.github.instagram4j.instagram4j.IGClient.Builder.LoginHandler;
@@ -44,8 +40,7 @@ public class Bot extends ListenerAdapter {
 	private final List<File> fileQueue = new ArrayList<>();
 	private final Map<String, Object> parameters = new ConcurrentHashMap<>();
 
-	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-
+	private Thread thread;
 	private boolean scheduledTask = false;
 	private Member memberUsingBot;
 	private IGClient client;
@@ -394,7 +389,15 @@ public class Bot extends ListenerAdapter {
 		dateToSchedule.minusSeconds(dateToSchedule.getSecond());
 		System.out.printf("Post programado para: %s %n", formatLocalDateTime(dateToSchedule));
 
-		scheduler.schedule(() -> {
+		thread = new Thread(() -> {
+			try {
+				while (LocalDateTime.now().isBefore(dateToSchedule)) {
+					Thread.sleep(30000);
+				}
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+
 			if (isAlbum) {
 				uploadAlbum(event, captions);
 				clearQueue(event);
@@ -403,7 +406,9 @@ public class Bot extends ListenerAdapter {
 			}
 
 			scheduledTask = false;
-		}, Duration.between(LocalDateTime.now(), dateToSchedule).toSeconds(), TimeUnit.SECONDS);
+		});
+
+		thread.start();
 
 		sendMessage(event, String.format("%s programado para: %s.", isAlbum ? "Álbum" : "Post",
 				formatLocalDateTime(dateToSchedule)));
