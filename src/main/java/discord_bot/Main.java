@@ -1,7 +1,5 @@
 package discord_bot;
 
-import discord_bot.controller.BDController;
-import io.github.cdimascio.dotenv.Dotenv;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Activity;
@@ -15,11 +13,9 @@ public class Main {
 
 	public static void main(String[] args) {
 		System.out.println(Bot.getVersionMessage());
-		BDController.init();
 
 		try {
-			Dotenv dotenv = Dotenv.configure().directory("config/.env").load();
-			String token = dotenv.get("TOKEN");
+			String token = System.getenv("TOKEN");
 			JDALogger.setFallbackLoggerEnabled(false);
 
 			JDA jda = JDABuilder.createDefault(token).addEventListeners(new Bot())

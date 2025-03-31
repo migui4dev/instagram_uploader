@@ -37,9 +37,10 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	private static final String VERSION = "1.2";
+	private static final String VERSION = "1.3 BETA";
 
-	private final List<Attachment> attQueue = new ArrayList<>();
+	private final boolean debug = true;
+
 	private final List<File> fileQueue = new ArrayList<>();
 	private final Map<String, Object> parameters = new ConcurrentHashMap<>();
 
@@ -56,8 +57,13 @@ public class Bot extends ListenerAdapter {
 			return;
 		}
 
-		event.deferReply(true).queue();
 		this.memberUsingBot = event.getMember();
+
+		if (debug && !memberUsingBot.getId().equals("471697821947396096")) {
+			return;
+		}
+
+		event.deferReply(true).queue();
 
 		// Desde aquí, únicamente se recogerán los parámetros y se llamarán a las
 		// funciones correspondientes.
@@ -76,7 +82,7 @@ public class Bot extends ListenerAdapter {
 				return;
 			}
 
-			login(event, parameters);
+			login(event);
 		}
 		case "logout" -> {
 			logout(event);
@@ -94,11 +100,12 @@ public class Bot extends ListenerAdapter {
 			} catch (Exception e) {
 				e.printStackTrace();
 				sendMessage(event, e.getMessage());
+				System.out.println(e.getMessage());
 				return;
 			}
 
 			Attachment attachment = (Attachment) parameters.get("attachment");
-			Attachment cover = parameters.containsKey("cover") ? (Attachment) parameters.get("cover") : null;
+			Attachment cover = parameters.containsKey("cover") ? (Attachment) parameters.get("cover") : attachment;
 
 			parameters.put("is_storie", false);
 			parameters.put("is_video", attachment.isVideo());
@@ -109,7 +116,7 @@ public class Bot extends ListenerAdapter {
 			parameters.put("attachment", attFile);
 			parameters.put("cover", coverFile);
 
-			uploadFile(event, parameters);
+			uploadFile(event);
 		}
 		case "upload_storie" -> {
 			try {
@@ -125,31 +132,41 @@ public class Bot extends ListenerAdapter {
 				return;
 			}
 
-			uploadFile(event, parameters);
+			uploadFile(event);
 		}
 		case "upload_album" -> {
 			String captions = event.getOption("captions").getAsString();
 			uploadAlbum(event, captions);
 			clearQueue(event);
 		}
-		case "upload_scheduled_post", "upload_scheduled_album" -> {
+		case "upload_scheduled_post" -> {
+			try {
+				processParameters(event.getOptions());
+
+				Attachment att = (Attachment) parameters.get("attachment");
+
+				parameters.put("is_video", att.isVideo());
+				parameters.put("is_storie", false);
+
+				File f = saveFile(event, att);
+				parameters.put("attachment", f);
+
+				uploadScheduled(event);
+			} catch (Exception e) {
+				e.printStackTrace();
+				sendMessage(event, e.getMessage());
+			}
+		}
+		case "upload_scheduled_album" -> {
 			try {
 				// No se llama al método "saveFile()", porque al añadir a la cola las imágenes,
 				// ya se llama a ese método.
 				processParameters(event.getOptions());
 
-				Attachment att = parameters.containsKey("attachment") ? (Attachment) parameters.get("attachment")
-						: null;
-
-				parameters.put("is_video", att != null ? att.isVideo() : false);
+				parameters.put("is_video", false);
 				parameters.put("is_storie", false);
 
-				if (att != null) {
-					File f = saveFile(event, att);
-					parameters.put("attachment", f);
-				}
-
-				uploadScheduled(event, parameters);
+				uploadScheduled(event);
 			} catch (Exception e) {
 				e.printStackTrace();
 				sendMessage(event, e.getMessage());
@@ -212,7 +229,7 @@ public class Bot extends ListenerAdapter {
 		return captions.replaceAll("%s", "\r\n");
 	}
 
-	private void login(SlashCommandInteractionEvent event, Map<String, Object> parameters) {
+	private void login(SlashCommandInteractionEvent event) {
 		String username = (String) parameters.get("username");
 		String password = (String) parameters.get("password");
 		String verificationCode = parameters.containsKey("verification_code")
@@ -237,12 +254,17 @@ public class Bot extends ListenerAdapter {
 	}
 
 	private void logout(SlashCommandInteractionEvent event) {
+		if (scheduledTask) {
+			sendMessage(event, "There is a scheduled task. You cannot logout.");
+			return;
+		}
+
 		client = null;
 		memberUsingBot = null;
 		sendMessage(event, Messages.SUCCESS_LOGOUT.getMessage());
 	}
 
-	private void uploadFile(SlashCommandInteractionEvent event, Map<String, Object> parameters) {
+	private void uploadFile(SlashCommandInteractionEvent event) {
 		try {
 			if (client == null || !client.isLoggedIn()) {
 				sendMessage(event, "No hay una sesión iniciada.");
@@ -347,7 +369,7 @@ public class Bot extends ListenerAdapter {
 		}).join();
 	}
 
-	private void uploadScheduled(SlashCommandInteractionEvent event, Map<String, Object> parameters) {
+	private void uploadScheduled(SlashCommandInteractionEvent event) {
 		scheduledTask = true;
 		LocalDateTime now = LocalDateTime.now();
 
@@ -364,23 +386,24 @@ public class Bot extends ListenerAdapter {
 		LocalDateTime dateToSchedule = wellFormedDate(year, month, day, hour, minute);
 
 		if (dateToSchedule == null) {
+			System.out.println("Fecha mal formada.");
 			sendMessage(event, "Fecha mal formada.");
 			return;
 		}
 
 		dateToSchedule.minusSeconds(dateToSchedule.getSecond());
-		System.out.println(formatLocalDateTime(dateToSchedule));
+		System.out.printf("Post programado para: %s %n", formatLocalDateTime(dateToSchedule));
 
 		scheduler.schedule(() -> {
 			if (isAlbum) {
 				uploadAlbum(event, captions);
 				clearQueue(event);
 			} else {
-				uploadFile(event, parameters);
+				uploadFile(event);
 			}
 
 			scheduledTask = false;
-		}, Duration.between(now, dateToSchedule).toSeconds(), TimeUnit.SECONDS);
+		}, Duration.between(LocalDateTime.now(), dateToSchedule).toSeconds(), TimeUnit.SECONDS);
 
 		sendMessage(event, String.format("%s programado para: %s.", isAlbum ? "Álbum" : "Post",
 				formatLocalDateTime(dateToSchedule)));
@@ -397,11 +420,6 @@ public class Bot extends ListenerAdapter {
 	}
 
 	private File saveFile(SlashCommandInteractionEvent event, Attachment att) {
-		// Se comprueba si es nula, puesto que puede ser una "cover".
-		if (att == null) {
-			return null;
-		}
-
 		File f = new File(att.getId());
 
 		try (DataOutputStream dosAtt = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f)))) {
@@ -434,7 +452,7 @@ public class Bot extends ListenerAdapter {
 			}
 		}
 
-		attQueue.clear();
+		fileQueue.clear();
 		sendMessage(event, Messages.CLEARED_QUEUE.getMessage());
 	}
 
