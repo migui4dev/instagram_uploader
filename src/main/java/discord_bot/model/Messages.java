@@ -4,7 +4,7 @@ public enum Messages {
 
 	NULL_FILE("El archivo no existe."), GENERIC_FILE_ERROR("Error de archivo."), GENERIC("Algo ha fallado..."),
 	SUCCESS_LOGIN("Inicio de sesión con éxito."), FAILED_LOGIN("Inicio de sesión fallado."),
-	ALREADY_LOGGED("Ya hay una sesión iniciada."), SUCCESS_LOGOUT("Cierre de sesión con éxito."),
+	ALREADY_LOGGED("Ya hay una sesión iniciada."), SUCCESS_LOGOUT("Sesión cerrada."),
 	VIDEO_STORIE_UPLOADED("Storie (vídeo) subido con éxito."), VIDEO_POST_UPLOADED("Post (vídeo) subido con éxito."),
 	IMAGE_STORIE_UPLOADED("Storie (imagen) subida con éxito."), IMAGE_POST_UPLOADED("Post (imagen) subida con éxito."),
 	ATTACHMENT_ADDED_QUEUE("Archivo añadido a la cola."), CLEARED_QUEUE("Cola vaciada."),

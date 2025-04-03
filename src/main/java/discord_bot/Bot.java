@@ -1,31 +1,26 @@
 package discord_bot;
 
-import java.io.BufferedOutputStream;
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.time.DateTimeException;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
 
-import com.github.instagram4j.instagram4j.IGClient;
-import com.github.instagram4j.instagram4j.IGClient.Builder.LoginHandler;
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarInfo;
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarPhoto;
-import com.github.instagram4j.instagram4j.exceptions.IGLoginException;
-import com.github.instagram4j.instagram4j.utils.IGChallengeUtils;
 
+import discord_bot.controller.FileManager;
+import discord_bot.controller.MessageManager;
+import discord_bot.controller.SessionManager;
 import discord_bot.model.Messages;
+import discord_bot.model.Parameters;
+import discord_bot.model.tasks.Album;
+import discord_bot.model.tasks.Post;
+import discord_bot.model.tasks.Scheduled;
+import discord_bot.model.tasks.ScheduledAlbum;
+import discord_bot.model.tasks.ScheduledPost;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message.Attachment;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -33,187 +28,374 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	private static final String VERSION = "1.3 BETA";
+	public static final String VERSION = "1.3";
 
-	private final boolean debug = true;
+	private static final int MIN_ALBUM_SIZE = 2;
 
-	private final List<File> fileQueue = new ArrayList<>();
-	private final Map<String, Object> parameters = new ConcurrentHashMap<>();
+	private final List<Scheduled> scheduledPublications = new ArrayList<>();
+
+	private Album currentAlbum;
 
 	private Thread thread;
-	private boolean scheduledTask = false;
 	private Member memberUsingBot;
-	private IGClient client;
 
 	@Override
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
 		if (memberUsingBot != null && !memberUsingBot.equals(event.getMember())) {
-			sendMessage(event, Messages.SOMEONE_USING_BOT.getMessage());
-			return;
-		}
-
-		this.memberUsingBot = event.getMember();
-
-		if (debug && !memberUsingBot.getId().equals("471697821947396096")) {
+			MessageManager.sendMessage(event, Messages.SOMEONE_USING_BOT);
 			return;
 		}
 
 		event.deferReply(true).queue();
 
-		// Desde aquí, únicamente se recogerán los parámetros y se llamarán a las
-		// funciones correspondientes.
 		switch (event.getName().toLowerCase()) {
 		case "login" -> {
-			if (client != null && client.isLoggedIn()) {
-				sendMessage(event, Messages.ALREADY_LOGGED.getMessage());
+			if (SessionManager.getClient() != null && SessionManager.getClient().isLoggedIn()) {
+				System.out.println("[!] Ya hay alguien con una sesión.");
+				MessageManager.sendMessage(event, Messages.ALREADY_LOGGED);
 				return;
 			}
 
-			try {
-				processParameters(event.getOptions());
-			} catch (Exception e) {
-				e.printStackTrace();
-				sendMessage(event, Messages.GENERIC.getMessage());
-				return;
-			}
+			String username = event.getOption(Parameters.username.name(), OptionMapping::getAsString);
+			String password = event.getOption(Parameters.password.name(), OptionMapping::getAsString);
+			String verificationCode = event.getOption(Parameters.verification_code.name(), OptionMapping::getAsString);
 
-			login(event);
+			System.out.println("[+] Iniciando sesión...");
+			if (SessionManager.login(event, username, password, verificationCode)) {
+				this.memberUsingBot = event.getMember();
+				System.out.println("[+] Sesión iniciada.");
+			} else {
+				System.out.println("[!] No se pudo iniciar sesión.");
+			}
 		}
 		case "logout" -> {
-			logout(event);
+			System.out.println("[-] Cerrando sesión...");
+			SessionManager.logout(event, scheduledPublications.isEmpty());
 		}
 		case "add_image" -> {
-			Attachment attachment = event.getOption("attachment").getAsAttachment();
-			addImageToQueue(event, attachment);
+			if (currentAlbum == null) {
+				System.out.println("[+] Creando un nuevo álbum.");
+				currentAlbum = new Album(event, null);
+			}
+
+			Attachment att = event.getOption(Parameters.attachment.name(), OptionMapping::getAsAttachment);
+
+			if (!att.isImage()) {
+				MessageManager.sendMessage(event, "El archivo **DEBE** ser una imagen.");
+				return;
+			}
+
+			System.out.println("[+] Guardando imagen... (add_image)");
+
+			File f = FileManager.saveFile(event, att);
+
+			if (f == null) {
+				MessageManager.sendMessage(event, Messages.GENERIC_FILE_ERROR);
+				return;
+			}
+
+			System.out.println("[+] Añadiendo imagen a álbum...");
+			currentAlbum.addFile(f);
+
+			MessageManager.sendMessage(event, Messages.ATTACHMENT_ADDED_QUEUE);
+
 		}
 		case "clear_queue" -> {
-			clearQueue(event);
+			if (currentAlbum == null) {
+				MessageManager.sendMessage(event, "No hay ningún álbum creado.");
+				return;
+			}
+
+			System.out.println("[+] Vaciando cola de archivos...");
+			currentAlbum.clearFiles();
 		}
 		case "upload_post" -> {
-			try {
-				processParameters(event.getOptions());
-			} catch (Exception e) {
-				e.printStackTrace();
-				sendMessage(event, e.getMessage());
-				System.out.println(e.getMessage());
-				return;
-			}
+			Attachment attachment = event.getOption(Parameters.attachment.name(), OptionMapping::getAsAttachment);
+			Attachment cover = event.getOption(Parameters.cover.name(), OptionMapping::getAsAttachment);
 
-			Attachment attachment = (Attachment) parameters.get("attachment");
-			Attachment cover = parameters.containsKey("cover") ? (Attachment) parameters.get("cover") : attachment;
+			System.out.println("[+] Guardando imágenes... (post).");
+			File attFile = FileManager.saveFile(event, attachment);
+			File coverFile = FileManager.saveFile(event, cover);
 
-			parameters.put("is_storie", false);
-			parameters.put("is_video", attachment.isVideo());
+			coverFile = Objects.requireNonNullElse(coverFile, attFile);
 
-			File attFile = saveFile(event, attachment);
-			File coverFile = saveFile(event, cover);
+			System.out.println("[+] Imágenes guardadas (post).");
 
-			parameters.put("attachment", attFile);
-			parameters.put("cover", coverFile);
+			String captions = processCaptions(event.getOption(Parameters.captions.name(), OptionMapping::getAsString));
 
-			uploadFile(event);
-		}
-		case "upload_storie" -> {
-			try {
-				processParameters(event.getOptions());
-				Attachment att = (Attachment) parameters.get("attachment");
-				parameters.put("is_storie", true);
-				parameters.put("is_video", att.isVideo());
-				File attFile = saveFile(event, att);
-				parameters.put("attachment", attFile);
-			} catch (Exception e) {
-				e.printStackTrace();
-				sendMessage(event, e.getMessage());
-				return;
-			}
+			Post p = new Post(event, attFile, coverFile, attachment, cover, captions, false);
 
-			uploadFile(event);
-		}
-		case "upload_album" -> {
-			String captions = event.getOption("captions").getAsString();
-			uploadAlbum(event, captions);
-			clearQueue(event);
+			System.out.println("[+] Subiendo post...");
+			uploadFile(event, p);
 		}
 		case "upload_scheduled_post" -> {
-			try {
-				processParameters(event.getOptions());
+			LocalDateTime dateToSchedule = getDateFromParameters(event);
 
-				Attachment att = (Attachment) parameters.get("attachment");
-
-				parameters.put("is_video", att.isVideo());
-				parameters.put("is_storie", false);
-
-				File f = saveFile(event, att);
-				parameters.put("attachment", f);
-
-				uploadScheduled(event);
-			} catch (Exception e) {
-				e.printStackTrace();
-				sendMessage(event, e.getMessage());
+			if (publicationInDate(dateToSchedule)) {
+				MessageManager.sendMessage(event, String.format("Ya hay una publicación programada para la fecha %s.",
+						formatDate(dateToSchedule)));
+				return;
 			}
+
+			Attachment att = event.getOption(Parameters.attachment.name(), OptionMapping::getAsAttachment);
+			Attachment cover = event.getOption(Parameters.cover.name(), OptionMapping::getAsAttachment);
+			String captions = event.getOption(Parameters.captions.name(), OptionMapping::getAsString);
+
+			System.out.println("[+] Guardando imagen... (scheduled post).");
+
+			File attFile = FileManager.saveFile(event, att);
+			File coverFile = FileManager.saveFile(event, cover);
+
+			coverFile = Objects.requireNonNullElse(coverFile, attFile);
+
+			ScheduledPost sp = new ScheduledPost(event, attFile, coverFile, att, cover, captions, dateToSchedule);
+
+			if (scheduledPublications.isEmpty()) {
+				System.out.println("[+] Añadiendo a la lista vacía (scheduled post).");
+				scheduledPublications.add(sp);
+			} else {
+				if (scheduledPublications.getFirst().getDate().isAfter(dateToSchedule)) {
+					System.out.println("[+] Añadiendo de primero (scheduled post).");
+					scheduledPublications.addFirst(sp);
+				} else {
+					System.out.println("[+] Añadiendo a la lista (scheduled post).");
+					scheduledPublications.add(sp);
+				}
+
+				// No se vuelve a llamar al método "uploadScheduled" porque está en un bucle
+				// hasta que se suba todos los posts que tenga programados.
+				MessageManager.sendMessage(event,
+						String.format("Post programado para: %s %n", formatDate(dateToSchedule)));
+				return;
+			}
+
+			System.out.printf("[+] Subiendo post programado %s... %n", formatDate(dateToSchedule));
+			uploadScheduled(event);
+			MessageManager.sendMessage(event, String.format("Post programado para: %s %n", formatDate(dateToSchedule)));
 		}
+
+		case "upload_album" -> {
+			if (currentAlbum == null || currentAlbum.getFiles().size() < MIN_ALBUM_SIZE) {
+				System.out.println("[!] Tienes que añadir dos o más imágenes.");
+				MessageManager.sendMessage(event, "Tienes que añadir dos o más imágenes.");
+				return;
+			}
+
+			String captions = processCaptions(event.getOption(Parameters.captions.name(), OptionMapping::getAsString));
+
+			currentAlbum.setCaptions(captions);
+
+			System.out.println("[+] Subiendo álbum...");
+			uploadAlbum(event, currentAlbum);
+		}
+
 		case "upload_scheduled_album" -> {
-			try {
-				// No se llama al método "saveFile()", porque al añadir a la cola las imágenes,
-				// ya se llama a ese método.
-				processParameters(event.getOptions());
+			// No se llama al método "saveFile()", porque al añadir a la cola las imágenes,
+			// ya se llama a ese método.System.out.println(currentAlbum == null);
+			if (currentAlbum == null || currentAlbum.getFiles().size() < MIN_ALBUM_SIZE) {
+				System.out.println("[!] Tienes que añadir dos o más imágenes.");
+				MessageManager.sendMessage(event, "Tienes que añadir dos o más imágenes.");
+				return;
+			}
 
-				parameters.put("is_video", false);
-				parameters.put("is_storie", false);
+			LocalDateTime dateToSchedule = getDateFromParameters(event);
 
-				uploadScheduled(event);
-			} catch (Exception e) {
-				e.printStackTrace();
-				sendMessage(event, e.getMessage());
+			if (publicationInDate(dateToSchedule)) {
+				MessageManager.sendMessage(event, String.format("Ya hay una publicación programada para la fecha %s.",
+						formatDate(dateToSchedule)));
+				return;
+			}
+
+			String captions = processCaptions(event.getOption(Parameters.captions.name(), OptionMapping::getAsString));
+
+			ScheduledAlbum sa = new ScheduledAlbum(event, captions, dateToSchedule);
+			sa.addAllFiles(currentAlbum.getFiles());
+			currentAlbum = null;
+
+			if (scheduledPublications.isEmpty()) {
+				System.out.println("[+] Añadiendo a lista vacía (scheduled album).");
+				scheduledPublications.add(sa);
+			} else {
+				if (scheduledPublications.getFirst().getDate().isAfter(dateToSchedule)) {
+					System.out.println("[+] Añadiendo de primero (scheduled album).");
+					scheduledPublications.addFirst(sa);
+				} else {
+					System.out.println("[+] Añadiendo a la lista (scheduled album).");
+					scheduledPublications.add(sa);
+				}
+
+				// No se vuelve a llamar al método "uploadScheduled" porque está en un bucle
+				// // hasta que se suba todos los posts que tenga programados.
+				MessageManager.sendMessage(event,
+						String.format("Álbum programado para: %s %n", formatDate(dateToSchedule)));
+				return;
+			}
+
+			System.out.printf("[+] Subiendo álbum programado para %s...", formatDate(dateToSchedule));
+			uploadScheduled(event);
+
+			MessageManager.sendMessage(event,
+					String.format("Álbum programado para: %s %n", formatDate(dateToSchedule)));
+		}
+		case "upload_storie" -> {
+			Attachment att = event.getOption(Parameters.attachment.name(), OptionMapping::getAsAttachment);
+
+			System.out.println("[+] Guardando imagen... (storie).");
+			File attFile = FileManager.saveFile(event, att);
+
+			Post p = new Post(event, attFile, null, att, null, "", true);
+
+			System.out.println("[+] Subiendo storie...");
+			uploadFile(event, p);
+		}
+		}
+	}
+
+	private void uploadScheduled(SlashCommandInteractionEvent event) {
+		thread = new Thread(() -> {
+			while (!scheduledPublications.isEmpty()) {
+				try {
+					while (LocalDateTime.now().isBefore(scheduledPublications.getFirst().getDate())) {
+						System.out.printf("[+] Post programado para: %s %n",
+								formatDate(scheduledPublications.getFirst().getDate()));
+						Thread.sleep(Duration.ofMinutes(1));
+					}
+				} catch (InterruptedException e) {
+					MessageManager.sendMessage(event, Messages.GENERIC);
+					e.printStackTrace();
+				}
+
+				Scheduled first = scheduledPublications.getFirst();
+
+				if (first instanceof ScheduledPost) {
+					ScheduledPost post = (ScheduledPost) first;
+
+					uploadFile(post.getEvent(), post);
+				} else {
+					ScheduledAlbum album = (ScheduledAlbum) first;
+					uploadAlbum(event, album);
+				}
+
+				scheduledPublications.removeFirst();
+			}
+		});
+
+		thread.start();
+	}
+
+	private void uploadFile(SlashCommandInteractionEvent event, Post p) {
+		boolean isVideo = p.getAttachment().isVideo();
+		boolean isStorie = p.isStorie();
+		File attFile = p.getAttachmentFile();
+		File coverFile = p.getCoverFile();
+		String captions = p.getCaptions();
+
+		if (SessionManager.getClient() == null || !SessionManager.getClient().isLoggedIn()) {
+			MessageManager.sendMessage(event, "No hay una sesión iniciada.");
+			return;
+		}
+
+		if (isVideo) {
+			if (isStorie) {
+				SessionManager.getClient().actions().story().uploadVideo(attFile, coverFile).thenAccept(t -> {
+					MessageManager.sendMessage(event, Messages.VIDEO_STORIE_UPLOADED);
+				}).exceptionally(t -> {
+					MessageManager.sendMessage(event, String
+							.format("Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
+					t.printStackTrace();
+					return null;
+				}).join();
+			} else {
+				SessionManager.getClient().actions().timeline().uploadVideo(attFile, coverFile, captions)
+						.thenAccept(t -> {
+							MessageManager.sendMessage(event, Messages.VIDEO_POST_UPLOADED);
+						}).exceptionally(t -> {
+							MessageManager.sendMessage(event, String.format(
+									"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
+							t.printStackTrace();
+							return null;
+						}).join();
+			}
+		} else {
+			if (isStorie) {
+				SessionManager.getClient().actions().story().uploadPhoto(attFile).thenAccept(t -> {
+					MessageManager.sendMessage(event, Messages.IMAGE_STORIE_UPLOADED);
+				}).exceptionally(t -> {
+					MessageManager.sendMessage(event, String
+							.format("Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
+					t.printStackTrace();
+					return null;
+				}).join();
+			} else {
+				SessionManager.getClient().actions().timeline().uploadPhoto(attFile, captions).thenAccept(t -> {
+					MessageManager.sendMessage(event, Messages.IMAGE_POST_UPLOADED);
+				}).exceptionally(t -> {
+					MessageManager.sendMessage(event, String
+							.format("Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
+					t.printStackTrace();
+					return null;
+				}).join();
 			}
 		}
 
+		FileManager.deleteFile(attFile);
+		FileManager.deleteFile(coverFile);
+
+		System.out.printf("[+] %s subido correctamente.", isStorie ? "Storie" : "Post");
+
+	}
+
+	private void uploadAlbum(SlashCommandInteractionEvent event, Album album) {
+		if (SessionManager.getClient() == null || !SessionManager.getClient().isLoggedIn()) {
+			MessageManager.sendMessage(event, "No hay una sesión iniciada.");
+			return;
+		} else if (album.getFiles().size() < MIN_ALBUM_SIZE) {
+			MessageManager.sendMessage(event, "Sólo se pueden subir álbumes con dos o más imágenes.");
+			return;
 		}
-	}
 
-	public static String getVersionMessage() {
-		return String.format("Versión %s", VERSION);
-	}
+		final List<SidecarInfo> albumSidecarInfo = new ArrayList<>();
 
-	private LocalDateTime wellFormedDate(int year, int month, int day, int hour, int minute) {
-		try {
-			LocalDateTime ldt = LocalDateTime.of(year, month, day, hour, minute);
-			return ldt;
-		} catch (DateTimeException e) {
-			return null;
+		for (File f : album.getFiles()) {
+			albumSidecarInfo.add(SidecarPhoto.from(f));
 		}
+
+		SessionManager.getClient().actions().timeline()
+				.uploadAlbum(albumSidecarInfo, String.format("%s", processCaptions(album.getCaptions())))
+				.thenAccept(t -> {
+					MessageManager.sendMessage(event, Messages.ALBUM_UPLOADED);
+				}).exceptionally((t) -> {
+					MessageManager.sendMessage(event, String.format("Ocurrió un error: %s", t));
+					t.printStackTrace();
+					return null;
+				}).join();
+
+		album.clearFiles();
+		System.out.println("[+] Álbum subido correctamente.");
+
 	}
 
-	private static String formatLocalDateTime(LocalDateTime date) {
+	private static String formatDate(LocalDateTime date) {
 		DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 		return date.format(dtf);
 	}
 
-	private void processParameters(List<OptionMapping> options) throws Exception {
-		parameters.clear();
+	private LocalDateTime getDateFromParameters(SlashCommandInteractionEvent event) {
+		final LocalDateTime now = LocalDateTime.now();
 
-		for (OptionMapping o : options) {
-			Object value;
+		int day = Objects.requireNonNullElse(event.getOption(Parameters.day.name(), OptionMapping::getAsInt),
+				now.getDayOfMonth());
+		int month = Objects.requireNonNullElse(event.getOption(Parameters.month.name(), OptionMapping::getAsInt),
+				now.getMonthValue());
+		int year = Objects.requireNonNullElse(event.getOption(Parameters.year.name(), OptionMapping::getAsInt),
+				now.getYear());
 
-			switch (o.getType()) {
-			case INTEGER -> {
-				value = o.getAsInt();
-			}
-			case STRING -> {
-				value = o.getAsString();
-			}
-			case ATTACHMENT -> {
-				value = o.getAsAttachment();
-			}
-			default -> {
-				throw new Exception("Invalid argument type.");
-			}
-			}
+		int hour = Objects.requireNonNullElse(event.getOption(Parameters.hour.name(), OptionMapping::getAsInt),
+				now.getHour());
+		int minute = Objects.requireNonNullElse(event.getOption(Parameters.minute.name(), OptionMapping::getAsInt),
+				now.getMinute());
 
-			parameters.put(o.getName(), value);
-		}
-
-		parameters.put("is_album", !parameters.containsKey("attachment"));
+		return Objects.requireNonNullElse(LocalDateTime.of(year, month, day, hour, minute, 0), now);
 	}
 
 	private String processCaptions(String captions) {
@@ -224,245 +406,13 @@ public class Bot extends ListenerAdapter {
 		return captions.replaceAll("%s", "\r\n");
 	}
 
-	private void login(SlashCommandInteractionEvent event) {
-		String username = (String) parameters.get("username");
-		String password = (String) parameters.get("password");
-		String verificationCode = parameters.containsKey("verification_code")
-				? (String) parameters.get("verification_code")
-				: null;
-
-		LoginHandler challengeHandler = (client, response) -> IGChallengeUtils.resolveChallenge(client, response,
-				() -> verificationCode != null ? verificationCode : "");
-
-		try {
-			if (verificationCode == null) {
-				client = IGClient.builder().username(username).password(password).login();
-			} else {
-				client = IGClient.builder().username(username).password(password).onChallenge(challengeHandler).login();
-			}
-			sendMessage(event, Messages.SUCCESS_LOGIN.getMessage());
-		} catch (IGLoginException e) {
-			sendMessage(event, Messages.FAILED_LOGIN.getMessage());
-			e.printStackTrace();
-		}
-
-	}
-
-	private void logout(SlashCommandInteractionEvent event) {
-		if (scheduledTask) {
-			sendMessage(event, "There is a scheduled task. You cannot logout.");
-			return;
-		}
-
-		client = null;
-		memberUsingBot = null;
-		sendMessage(event, Messages.SUCCESS_LOGOUT.getMessage());
-	}
-
-	private void uploadFile(SlashCommandInteractionEvent event) {
-		try {
-			if (client == null || !client.isLoggedIn()) {
-				sendMessage(event, "No hay una sesión iniciada.");
-				return;
-			}
-
-			File attachment = (File) parameters.get("attachment");
-			File cover = parameters.get("cover") != null ? (File) parameters.get("cover_file") : attachment;
-
-			String captions = parameters.containsKey("captions") ? parameters.get("captions").toString() : "";
-			captions = String.format("%s", processCaptions(captions));
-
-			boolean isStorie = (boolean) parameters.get("is_storie");
-			boolean isVideo = (boolean) parameters.get("is_video");
-
-			if (isVideo) {
-				if (isStorie) {
-					client.actions().story().uploadVideo(attachment, cover).thenAccept(t -> {
-						sendMessage(event, Messages.VIDEO_STORIE_UPLOADED.getMessage());
-					}).exceptionally(t -> {
-						sendMessage(event,
-								String.format(
-										"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).",
-										t.getMessage()));
-						t.printStackTrace();
-						return null;
-					}).join();
-				} else {
-					client.actions().timeline().uploadVideo(attachment, cover, captions).thenAccept(t -> {
-						sendMessage(event, Messages.VIDEO_POST_UPLOADED.getMessage());
-					}).exceptionally(t -> {
-						sendMessage(event,
-								String.format(
-										"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).",
-										t.getMessage()));
-						t.printStackTrace();
-						return null;
-					}).join();
-				}
-			} else {
-				if (isStorie) {
-					client.actions().story().uploadPhoto(attachment).thenAccept(t -> {
-						sendMessage(event, Messages.IMAGE_STORIE_UPLOADED.getMessage());
-					}).exceptionally(t -> {
-						sendMessage(event,
-								String.format(
-										"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).",
-										t.getMessage()));
-						t.printStackTrace();
-						return null;
-					}).join();
-				} else {
-					client.actions().timeline().uploadPhoto(attachment, captions).thenAccept(t -> {
-						sendMessage(event, Messages.IMAGE_POST_UPLOADED.getMessage());
-					}).exceptionally(t -> {
-						sendMessage(event,
-								String.format(
-										"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).",
-										t.getMessage()));
-						t.printStackTrace();
-						return null;
-					}).join();
-				}
-			}
-
-			if (attachment.exists()) {
-				attachment.delete();
-			}
-
-			if (cover.exists()) {
-				cover.delete();
-			}
-		} catch (Exception e) {
-			System.out.println(e.getMessage());
-		}
-
-	}
-
-	private void uploadAlbum(SlashCommandInteractionEvent event, String captions) {
-		if (client == null || !client.isLoggedIn()) {
-			sendMessage(event, "No hay una sesión iniciada.");
-			return;
-		}
-
-		final List<SidecarInfo> album = new ArrayList<>();
-
-		for (File f : fileQueue) {
-			album.add(SidecarPhoto.from(f));
-		}
-
-		if (album.size() <= 1) {
-			sendMessage(event, Messages.ALBUM_WRONG_SIZE.getMessage());
-			return;
-		}
-
-		client.actions().timeline().uploadAlbum(album, String.format("%s", processCaptions(captions))).thenAccept(t -> {
-			sendMessage(event, Messages.ALBUM_UPLOADED.getMessage());
-		}).exceptionally((t) -> {
-			sendMessage(event, String.format("Ocurrió un error: %s", t.getMessage()));
-			t.printStackTrace();
-			return null;
-		}).join();
-	}
-
-	private void uploadScheduled(SlashCommandInteractionEvent event) {
-		scheduledTask = true;
-		LocalDateTime now = LocalDateTime.now();
-
-		int day = parameters.containsKey("day") ? (int) parameters.get("day") : now.getDayOfMonth();
-		int month = parameters.containsKey("month") ? (int) parameters.get("month") : now.getMonthValue();
-		int year = parameters.containsKey("year") ? (int) parameters.get("year") : now.getYear();
-
-		int hour = parameters.containsKey("hour") ? (int) parameters.get("hour") : now.getHour();
-		int minute = parameters.containsKey("minute") ? (int) parameters.get("minute") : now.getMinute();
-
-		String captions = processCaptions(parameters.get("captions").toString());
-		boolean isAlbum = (boolean) parameters.get("is_album");
-
-		LocalDateTime dateToSchedule = wellFormedDate(year, month, day, hour, minute);
-
-		if (dateToSchedule == null) {
-			System.out.println("Fecha mal formada.");
-			sendMessage(event, "Fecha mal formada.");
-			return;
-		}
-
-		dateToSchedule.minusSeconds(dateToSchedule.getSecond());
-		System.out.printf("Post programado para: %s %n", formatLocalDateTime(dateToSchedule));
-
-		thread = new Thread(() -> {
-			try {
-				while (LocalDateTime.now().isBefore(dateToSchedule)) {
-					Thread.sleep(30000);
-				}
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
-
-			if (isAlbum) {
-				uploadAlbum(event, captions);
-				clearQueue(event);
-			} else {
-				uploadFile(event);
-			}
-
-			scheduledTask = false;
-		});
-
-		thread.start();
-
-		sendMessage(event, String.format("%s programado para: %s.", isAlbum ? "Álbum" : "Post",
-				formatLocalDateTime(dateToSchedule)));
-	}
-
-	private void addImageToQueue(SlashCommandInteractionEvent event, Attachment att) {
-		if (!att.isImage()) {
-			return;
-		}
-
-		File f = saveFile(event, att);
-		fileQueue.add(f);
-		sendMessage(event, Messages.ATTACHMENT_ADDED_QUEUE.getMessage());
-	}
-
-	private File saveFile(SlashCommandInteractionEvent event, Attachment att) {
-		File f = new File(att.getId());
-
-		try (DataOutputStream dosAtt = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f)))) {
-			URL urlAtt = new URI(att.getUrl()).toURL();
-			InputStream is = urlAtt.openStream();
-
-			dosAtt.write(is.readAllBytes());
-
-			return f;
-		} catch (MalformedURLException | URISyntaxException e) {
-			e.printStackTrace();
-			sendMessage(event, Messages.GENERIC.getMessage());
-		} catch (IOException e) {
-			e.printStackTrace();
-			sendMessage(event, Messages.GENERIC_FILE_ERROR.getMessage());
-		}
-
-		return null;
-	}
-
-	private void clearQueue(SlashCommandInteractionEvent event) {
-		if (scheduledTask) {
-			sendMessage(event, Messages.CANNOT_CLEAR_QUEUE.getMessage());
-			return;
-		}
-
-		for (File f : fileQueue) {
-			if (f.exists()) {
-				f.delete();
+	private boolean publicationInDate(LocalDateTime ldt) {
+		for (Scheduled s : scheduledPublications) {
+			if (s.getDate().equals(ldt)) {
+				return true;
 			}
 		}
 
-		fileQueue.clear();
-		sendMessage(event, Messages.CLEARED_QUEUE.getMessage());
+		return false;
 	}
-
-	private void sendMessage(SlashCommandInteractionEvent event, String message) {
-		event.getHook().sendMessage(message).queue();
-	}
-
 }

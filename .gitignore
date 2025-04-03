@@ -1,4 +1,9 @@
-*.class
 target/
 config/
+.setting/
+
+*.class
 .env
+*.db
+*.sql
+TODO.txt
