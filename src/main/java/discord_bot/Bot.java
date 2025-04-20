@@ -39,8 +39,6 @@ public class Bot extends ListenerAdapter {
 	private Thread thread;
 	private Member memberUsingBot;
 
-	private boolean postsShown = false;
-
 	@Override
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
 		if (memberUsingBot != null && !memberUsingBot.equals(event.getMember())) {
@@ -258,12 +256,9 @@ public class Bot extends ListenerAdapter {
 	private void uploadScheduled(SlashCommandInteractionEvent event) {
 		thread = new Thread(() -> {
 			while (!scheduledPublications.isEmpty()) {
+				System.out.printf("[+] Post/álbumes programados: %s %n", scheduledPublications);
 				try {
 					while (LocalDateTime.now().isBefore(scheduledPublications.getFirst().getDate())) {
-
-						System.out.printf(postsShown ? "" : "[+] Post/álbumes programados: %s %n",
-								scheduledPublications);
-						postsShown = true;
 						Thread.sleep(Duration.ofMinutes(1));
 
 					}
@@ -284,7 +279,6 @@ public class Bot extends ListenerAdapter {
 				}
 
 				scheduledPublications.removeFirst();
-				postsShown = false;
 			}
 		});
 
