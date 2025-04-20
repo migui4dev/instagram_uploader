@@ -87,13 +87,15 @@ public class Main {
 
 			commands.addCommands(Commands.slash("logout", "It is used to log out of your Instagram account session."));
 
-			commands.addCommands(Commands.slash("show_queue", "It is to show the post/album queue."));
-
 			commands.addCommands(
 					Commands.slash("add_image", "Adds an attachment to queue of attachments for an album.").addOption(
 							OptionType.ATTACHMENT, Parameters.attachment.name(), "Attachment to add to queue.", true));
 
 			commands.addCommands(Commands.slash("clear_queue", "Clear the queue of attachments."));
+
+			commands.addCommands(
+					Commands.slash("show_queue", "If index not specified, it shows the first queue element.")
+							.addOption(OptionType.INTEGER, Parameters.index.name(), "Index of element", false));
 
 			commands.queue();
 

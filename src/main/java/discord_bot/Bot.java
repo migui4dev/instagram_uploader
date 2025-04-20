@@ -250,6 +250,26 @@ public class Bot extends ListenerAdapter {
 			System.out.println("[+] Subiendo storie...");
 			uploadFile(event, p);
 		}
+
+		case "show_queue" -> {
+			if (scheduledPublications.isEmpty()) {
+				MessageManager.sendMessage(event, "No hay álbumes programados.");
+				return;
+			}
+
+			Integer index = event.getOption(Parameters.index.name(), OptionMapping::getAsInt);
+
+			Scheduled s = index == null || index >= scheduledPublications.size() ? scheduledPublications.getFirst()
+					: scheduledPublications.get(index);
+
+			if (s instanceof Album) {
+				System.out.printf("[!] Mostrando álbum: %s %n", s);
+				MessageManager.showQueue(event, (Album) s);
+			} else {
+				MessageManager.sendMessage(event, "No hay álbumes programados.");
+			}
+
+		}
 		}
 	}
 
