@@ -2,6 +2,7 @@ package discord_bot.model.tasks;
 
 import java.time.LocalDateTime;
 
+import discord_bot.controller.MyDateFormatter;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 
 public class ScheduledAlbum extends Album implements Scheduled {
@@ -15,6 +16,13 @@ public class ScheduledAlbum extends Album implements Scheduled {
 	@Override
 	public LocalDateTime getDate() {
 		return date;
+	}
+
+	@Override
+	public String toString() {
+		final String filesStr = super.toString();
+
+		return String.format("%s (%s)", filesStr, MyDateFormatter.formatDate(date));
 	}
 
 }

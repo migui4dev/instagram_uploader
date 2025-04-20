@@ -39,4 +39,9 @@ public class Post extends Publication {
 	public boolean isStorie() {
 		return isStorie;
 	}
+
+	@Override
+	public String toString() {
+		return String.format("%s %s %s", isStorie ? "Storie" : "Post", attachmentFile.getName(), captions);
+	}
 }

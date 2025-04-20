@@ -3,7 +3,6 @@ package discord_bot;
 import java.io.File;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -13,6 +12,7 @@ import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.Sideca
 
 import discord_bot.controller.FileManager;
 import discord_bot.controller.MessageManager;
+import discord_bot.controller.MyDateFormatter;
 import discord_bot.controller.SessionManager;
 import discord_bot.model.Messages;
 import discord_bot.model.Parameters;
@@ -28,7 +28,7 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.3";
+	public static final String VERSION = "1.31";
 
 	private static final int MIN_ALBUM_SIZE = 2;
 
@@ -38,6 +38,8 @@ public class Bot extends ListenerAdapter {
 
 	private Thread thread;
 	private Member memberUsingBot;
+
+	private boolean postsShown = false;
 
 	@Override
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
@@ -133,7 +135,7 @@ public class Bot extends ListenerAdapter {
 
 			if (publicationInDate(dateToSchedule)) {
 				MessageManager.sendMessage(event, String.format("Ya hay una publicación programada para la fecha %s.",
-						formatDate(dateToSchedule)));
+						MyDateFormatter.formatDate(dateToSchedule)));
 				return;
 			}
 
@@ -165,13 +167,14 @@ public class Bot extends ListenerAdapter {
 				// No se vuelve a llamar al método "uploadScheduled" porque está en un bucle
 				// hasta que se suba todos los posts que tenga programados.
 				MessageManager.sendMessage(event,
-						String.format("Post programado para: %s %n", formatDate(dateToSchedule)));
+						String.format("Post programado para: %s %n", MyDateFormatter.formatDate(dateToSchedule)));
 				return;
 			}
 
-			System.out.printf("[+] Subiendo post programado %s... %n", formatDate(dateToSchedule));
+			System.out.printf("[+] Subiendo post programado %s... %n", MyDateFormatter.formatDate(dateToSchedule));
 			uploadScheduled(event);
-			MessageManager.sendMessage(event, String.format("Post programado para: %s %n", formatDate(dateToSchedule)));
+			MessageManager.sendMessage(event,
+					String.format("Post programado para: %s %n", MyDateFormatter.formatDate(dateToSchedule)));
 		}
 
 		case "upload_album" -> {
@@ -202,7 +205,7 @@ public class Bot extends ListenerAdapter {
 
 			if (publicationInDate(dateToSchedule)) {
 				MessageManager.sendMessage(event, String.format("Ya hay una publicación programada para la fecha %s.",
-						formatDate(dateToSchedule)));
+						MyDateFormatter.formatDate(dateToSchedule)));
 				return;
 			}
 
@@ -227,15 +230,16 @@ public class Bot extends ListenerAdapter {
 				// No se vuelve a llamar al método "uploadScheduled" porque está en un bucle
 				// // hasta que se suba todos los posts que tenga programados.
 				MessageManager.sendMessage(event,
-						String.format("Álbum programado para: %s %n", formatDate(dateToSchedule)));
+						String.format("Álbum programado para: %s %n", MyDateFormatter.formatDate(dateToSchedule)));
 				return;
 			}
 
-			System.out.printf("[+] Subiendo álbum programado para %s...", formatDate(dateToSchedule));
+			System.out.printf("[+] Subiendo álbum programado para %s... %n",
+					MyDateFormatter.formatDate(dateToSchedule));
 			uploadScheduled(event);
 
 			MessageManager.sendMessage(event,
-					String.format("Álbum programado para: %s %n", formatDate(dateToSchedule)));
+					String.format("Álbum programado para: %s %n", MyDateFormatter.formatDate(dateToSchedule)));
 		}
 		case "upload_storie" -> {
 			Attachment att = event.getOption(Parameters.attachment.name(), OptionMapping::getAsAttachment);
@@ -256,9 +260,12 @@ public class Bot extends ListenerAdapter {
 			while (!scheduledPublications.isEmpty()) {
 				try {
 					while (LocalDateTime.now().isBefore(scheduledPublications.getFirst().getDate())) {
-						System.out.printf("[+] Post programado para: %s %n",
-								formatDate(scheduledPublications.getFirst().getDate()));
+
+						System.out.printf(postsShown ? "" : "[+] Post/álbumes programados: %s %n",
+								scheduledPublications);
+						postsShown = true;
 						Thread.sleep(Duration.ofMinutes(1));
+
 					}
 				} catch (InterruptedException e) {
 					MessageManager.sendMessage(event, Messages.GENERIC);
@@ -277,6 +284,7 @@ public class Bot extends ListenerAdapter {
 				}
 
 				scheduledPublications.removeFirst();
+				postsShown = false;
 			}
 		});
 
@@ -373,11 +381,6 @@ public class Bot extends ListenerAdapter {
 		album.clearFiles();
 		System.out.println("[+] Álbum subido correctamente.");
 
-	}
-
-	private static String formatDate(LocalDateTime date) {
-		DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
-		return date.format(dtf);
 	}
 
 	private LocalDateTime getDateFromParameters(SlashCommandInteractionEvent event) {

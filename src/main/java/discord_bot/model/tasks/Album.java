@@ -37,7 +37,9 @@ public class Album extends Publication {
 
 	@Override
 	public String toString() {
-		return "album " + super.captions + " " + files.size();
+		final String filesStr = String.join(",", files.stream().map(t -> t.getName()).toList());
+
+		return String.format("Álbum: [%s]", filesStr);
 	}
 
 }
