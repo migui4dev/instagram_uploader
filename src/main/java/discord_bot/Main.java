@@ -1,5 +1,7 @@
 package discord_bot;
 
+import static spark.Spark.*;
+
 import discord_bot.model.Parameters;
 import io.github.cdimascio.dotenv.Dotenv;
 import net.dv8tion.jda.api.JDA;
@@ -14,6 +16,8 @@ import net.dv8tion.jda.internal.utils.JDALogger;
 public class Main {
 
 	public static void main(String[] args) {
+		port(8000);
+		get("/", (req, res) -> "Bot funcionando!");
 
 		System.out.printf("Versión %s %n", Bot.VERSION);
 
@@ -24,7 +28,6 @@ public class Main {
 				Dotenv dotenv = Dotenv.configure().directory("config/.env").load();
 				dotenv.get("TOKEN");
 			} catch (Exception e) {
-				e.printStackTrace();
 				token = System.getenv("TOKEN");
 			}
 
