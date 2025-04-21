@@ -25,7 +25,7 @@ public class Main {
 				dotenv.get("TOKEN");
 			} catch (Exception e) {
 				e.printStackTrace();
-				token = System.getProperty("TOKEN");
+				token = System.getenv("TOKEN");
 			}
 
 			JDALogger.setFallbackLoggerEnabled(false);
