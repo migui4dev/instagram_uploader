@@ -42,6 +42,7 @@ public class Post extends Publication {
 
 	@Override
 	public String toString() {
-		return String.format("%s %s %s", isStorie ? "Storie" : "Post", attachmentFile.getName(), captions);
+		return String.format("Id att: %s, cover id: %s, %s, Captions: '%s'.", attachmentFile.getName(),
+				coverFile.getName(), isStorie ? "Storie" : "Post", captions);
 	}
 }

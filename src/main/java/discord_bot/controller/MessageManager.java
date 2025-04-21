@@ -1,9 +1,13 @@
 package discord_bot.controller;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 import discord_bot.model.Messages;
 import discord_bot.model.tasks.Album;
+import discord_bot.model.tasks.Post;
+import discord_bot.model.tasks.Publication;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.utils.FileUpload;
 
@@ -17,12 +21,33 @@ public class MessageManager {
 		event.getHook().sendMessage(message).queue();
 	}
 
-	public static void showQueue(SlashCommandInteractionEvent event, Album album) {
+	public static void sendFiles(SlashCommandInteractionEvent event, Publication p) {
+		Album album = null;
+		Post post = null;
+		final List<File> files = new ArrayList<>();
+
+		if (p instanceof Album) {
+			album = (Album) p;
+			files.addAll(album.getFiles());
+		} else {
+			post = (Post) p;
+			files.add(post.getAttachmentFile());
+			files.add(post.getCoverFile());
+		}
+
 		try {
-			List<FileUpload> fileUpload = album.getFiles().stream().map(f -> FileUpload.fromData(f)).toList();
+			final List<FileUpload> fileUpload = files.stream().map(f -> FileUpload.fromData(f)).toList();
+
+			String msg;
+
+			if (album != null) {
+				msg = album.toString();
+			} else {
+				msg = post.toString();
+			}
 
 			event.getHook().sendFiles(fileUpload).queue();
-			event.getHook().sendMessage(album.toString()).queue();
+			event.getHook().sendMessage(msg).queue();
 		} catch (Exception e) {
 			e.printStackTrace();
 		}

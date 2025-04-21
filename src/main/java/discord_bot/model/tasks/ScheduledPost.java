@@ -24,6 +24,6 @@ public class ScheduledPost extends Post implements Scheduled {
 	@Override
 	public String toString() {
 		final String postStr = super.toString();
-		return String.format("%s (%s)", postStr, MyDateFormatter.formatDate(date));
+		return String.format("%s Programado para: %s.", postStr, MyDateFormatter.formatDate(date));
 	}
 }

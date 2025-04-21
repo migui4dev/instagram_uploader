@@ -22,7 +22,7 @@ public class ScheduledAlbum extends Album implements Scheduled {
 	public String toString() {
 		final String filesStr = super.toString();
 
-		return String.format("%s (%s)", filesStr, MyDateFormatter.formatDate(date));
+		return String.format("%s Programado para: %s.", filesStr, MyDateFormatter.formatDate(date));
 	}
 
 }

@@ -28,7 +28,7 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.31";
+	public static final String VERSION = "1.32";
 
 	private static final int MIN_ALBUM_SIZE = 2;
 
@@ -258,17 +258,17 @@ public class Bot extends ListenerAdapter {
 			}
 
 			Integer index = event.getOption(Parameters.index.name(), OptionMapping::getAsInt);
+			index = index == null ? 0 : Math.clamp(index, 0, scheduledPublications.size() - 1);
 
-			Scheduled s = index == null || index >= scheduledPublications.size() ? scheduledPublications.getFirst()
-					: scheduledPublications.get(index);
+			System.out.println(index);
+			Scheduled s = scheduledPublications.get(index);
 
 			if (s instanceof Album) {
 				System.out.printf("[!] Mostrando álbum: %s %n", s);
-				MessageManager.showQueue(event, (Album) s);
+				MessageManager.sendFiles(event, (Album) s);
 			} else {
-				MessageManager.sendMessage(event, "No hay álbumes programados.");
+				MessageManager.sendMessage(event, "En el índice seleccionado no hay un álbum.");
 			}
-
 		}
 		}
 	}
