@@ -19,7 +19,16 @@ public class Main {
 
 		try {
 			Dotenv dotenv = Dotenv.configure().directory("config/.env").load();
-			String token = dotenv.get("TOKEN");
+
+			String token = "";
+
+			try {
+				dotenv.get("TOKEN");
+			} catch (Exception e) {
+				e.printStackTrace();
+				token = System.getProperty("TOKEN");
+			}
+
 			JDALogger.setFallbackLoggerEnabled(false);
 
 			JDA jda = JDABuilder.createDefault(token).addEventListeners(new Bot())
