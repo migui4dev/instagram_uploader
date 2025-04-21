@@ -18,11 +18,10 @@ public class Main {
 		System.out.printf("Versión %s %n", Bot.VERSION);
 
 		try {
-			Dotenv dotenv = Dotenv.configure().directory("config/.env").load();
-
 			String token = "";
 
 			try {
+				Dotenv dotenv = Dotenv.configure().directory("config/.env").load();
 				dotenv.get("TOKEN");
 			} catch (Exception e) {
 				e.printStackTrace();
