@@ -26,7 +26,7 @@ public class Main {
 
 			try {
 				Dotenv dotenv = Dotenv.configure().directory("config/.env").load();
-				dotenv.get("TOKEN");
+				token = dotenv.get("TOKEN");
 			} catch (Exception e) {
 				token = System.getenv("TOKEN");
 			}
