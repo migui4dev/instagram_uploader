@@ -5,7 +5,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 public class DateManager {
-	public static final ZoneId SPAIN_ZONE = ZoneId.of("Asia/Tokyo");
+	public static final ZoneId SPAIN_ZONE = ZoneId.of("Europe/Madrid");
 	public static final ZonedDateTime DEPLOY_DATE = ZonedDateTime.now(SPAIN_ZONE);
 
 	private static final DateTimeFormatter dtf = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
