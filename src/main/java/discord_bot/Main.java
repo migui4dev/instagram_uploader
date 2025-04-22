@@ -18,8 +18,12 @@ public class Main {
 	public static void main(String[] args) {
 		System.out.printf("Versión %s %n", Bot.VERSION);
 
+		System.out.println(DateManager.DEPLOY_DATE);
+		System.out.println(DateManager.getDeployDate());
+
 		Spark.port(8000);
-		Spark.get("/", (res, req) -> String.format("Bot funcionando desde %s %n", DateManager.getDeployDate()));
+		Spark.get("/", (res, req) -> String.format("Bot funcionando desde %s con versión %s %n",
+				DateManager.getDeployDate(), Bot.VERSION));
 
 		try {
 			String token = null;
