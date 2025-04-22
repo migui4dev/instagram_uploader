@@ -1,11 +1,6 @@
 package discord_bot;
 
-import static spark.Spark.get;
-import static spark.Spark.port;
-
-import java.time.LocalDateTime;
-
-import discord_bot.controller.MyDateFormatter;
+import discord_bot.controller.DateManager;
 import discord_bot.model.Parameters;
 import io.github.cdimascio.dotenv.Dotenv;
 import net.dv8tion.jda.api.JDA;
@@ -16,18 +11,18 @@ import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 import net.dv8tion.jda.internal.utils.JDALogger;
+import spark.Spark;
 
 public class Main {
-	private static final LocalDateTime DEPLOY_DATE = LocalDateTime.now();
 
 	public static void main(String[] args) {
-		port(8000);
-		get("/", (req, res) -> String.format("Bot funcionando desde %s %n", MyDateFormatter.formatDate(DEPLOY_DATE)));
-
 		System.out.printf("Versión %s %n", Bot.VERSION);
 
+		Spark.port(8000);
+		Spark.get("/", (res, req) -> String.format("Bot funcionando desde %s %n", DateManager.getDeployDate()));
+
 		try {
-			String token = "";
+			String token = null;
 
 			try {
 				Dotenv dotenv = Dotenv.configure().directory("config/.env").load();

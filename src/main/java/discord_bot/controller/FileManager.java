@@ -21,13 +21,15 @@ public class FileManager {
 			return null;
 		}
 
-		File f = new File(att.getId());
-
-		try (DataOutputStream dosAtt = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f)))) {
+		try {
+			File f = File.createTempFile(att.getId(), null);
+			DataOutputStream dosAtt = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f)));
 			URL urlAtt = new URI(att.getUrl()).toURL();
 			InputStream is = urlAtt.openStream();
 
 			dosAtt.write(is.readAllBytes());
+
+			dosAtt.close();
 
 			return f;
 		} catch (MalformedURLException | URISyntaxException e) {

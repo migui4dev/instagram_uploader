@@ -2,17 +2,20 @@ package discord_bot;
 
 import java.io.File;
 import java.time.Duration;
-import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarInfo;
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarPhoto;
 
+import discord_bot.controller.DateManager;
 import discord_bot.controller.FileManager;
 import discord_bot.controller.MessageManager;
-import discord_bot.controller.MyDateFormatter;
 import discord_bot.controller.SessionManager;
 import discord_bot.model.Messages;
 import discord_bot.model.Parameters;
@@ -28,15 +31,16 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.32";
+	public static final String VERSION = "1.33";
 
 	private static final int MIN_ALBUM_SIZE = 2;
 
 	private final List<Scheduled> scheduledPublications = new ArrayList<>();
 
+	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
 	private Album currentAlbum;
 
-	private Thread thread;
 	private Member memberUsingBot;
 
 	@Override
@@ -129,11 +133,11 @@ public class Bot extends ListenerAdapter {
 			uploadFile(event, p);
 		}
 		case "upload_scheduled_post" -> {
-			LocalDateTime dateToSchedule = getDateFromParameters(event);
+			ZonedDateTime dateToSchedule = getDateFromParameters(event);
 
-			if (publicationInDate(dateToSchedule)) {
+			if (publicationHasCorrectDate(dateToSchedule)) {
 				MessageManager.sendMessage(event, String.format("Ya hay una publicación programada para la fecha %s.",
-						MyDateFormatter.formatDate(dateToSchedule)));
+						DateManager.formatDate(dateToSchedule)));
 				return;
 			}
 
@@ -150,29 +154,13 @@ public class Bot extends ListenerAdapter {
 
 			ScheduledPost sp = new ScheduledPost(event, attFile, coverFile, att, cover, captions, dateToSchedule);
 
-			if (scheduledPublications.isEmpty()) {
-				System.out.println("[+] Añadiendo a la lista vacía (scheduled post).");
-				scheduledPublications.add(sp);
-			} else {
-				if (scheduledPublications.getFirst().getDate().isAfter(dateToSchedule)) {
-					System.out.println("[+] Añadiendo de primero (scheduled post).");
-					scheduledPublications.addFirst(sp);
-				} else {
-					System.out.println("[+] Añadiendo a la lista (scheduled post).");
-					scheduledPublications.add(sp);
-				}
+			System.out.println("[+] Añadiendo a la lista (scheduled post).");
 
-				// No se vuelve a llamar al método "uploadScheduled" porque está en un bucle
-				// hasta que se suba todos los posts que tenga programados.
-				MessageManager.sendMessage(event,
-						String.format("Post programado para: %s %n", MyDateFormatter.formatDate(dateToSchedule)));
-				return;
-			}
+			scheduledPublications.add(sp);
 
-			System.out.printf("[+] Subiendo post programado %s... %n", MyDateFormatter.formatDate(dateToSchedule));
-			uploadScheduled(event);
+			uploadScheduled(event, sp);
 			MessageManager.sendMessage(event,
-					String.format("Post programado para: %s %n", MyDateFormatter.formatDate(dateToSchedule)));
+					String.format("Post programado para: %s %n", DateManager.formatDate(dateToSchedule)));
 		}
 
 		case "upload_album" -> {
@@ -199,11 +187,11 @@ public class Bot extends ListenerAdapter {
 				return;
 			}
 
-			LocalDateTime dateToSchedule = getDateFromParameters(event);
+			ZonedDateTime dateToSchedule = getDateFromParameters(event);
 
-			if (publicationInDate(dateToSchedule)) {
+			if (publicationHasCorrectDate(dateToSchedule)) {
 				MessageManager.sendMessage(event, String.format("Ya hay una publicación programada para la fecha %s.",
-						MyDateFormatter.formatDate(dateToSchedule)));
+						DateManager.formatDate(dateToSchedule)));
 				return;
 			}
 
@@ -213,31 +201,12 @@ public class Bot extends ListenerAdapter {
 			sa.addAllFiles(currentAlbum.getFiles());
 			currentAlbum = null;
 
-			if (scheduledPublications.isEmpty()) {
-				System.out.println("[+] Añadiendo a lista vacía (scheduled album).");
-				scheduledPublications.add(sa);
-			} else {
-				if (scheduledPublications.getFirst().getDate().isAfter(dateToSchedule)) {
-					System.out.println("[+] Añadiendo de primero (scheduled album).");
-					scheduledPublications.addFirst(sa);
-				} else {
-					System.out.println("[+] Añadiendo a la lista (scheduled album).");
-					scheduledPublications.add(sa);
-				}
-
-				// No se vuelve a llamar al método "uploadScheduled" porque está en un bucle
-				// // hasta que se suba todos los posts que tenga programados.
-				MessageManager.sendMessage(event,
-						String.format("Álbum programado para: %s %n", MyDateFormatter.formatDate(dateToSchedule)));
-				return;
-			}
-
-			System.out.printf("[+] Subiendo álbum programado para %s... %n",
-					MyDateFormatter.formatDate(dateToSchedule));
-			uploadScheduled(event);
+			scheduledPublications.add(sa);
 
 			MessageManager.sendMessage(event,
-					String.format("Álbum programado para: %s %n", MyDateFormatter.formatDate(dateToSchedule)));
+					String.format("Álbum programado para: %s %n", DateManager.formatDate(dateToSchedule)));
+
+			uploadScheduled(event, sa);
 		}
 		case "upload_storie" -> {
 			Attachment att = event.getOption(Parameters.attachment.name(), OptionMapping::getAsAttachment);
@@ -273,36 +242,23 @@ public class Bot extends ListenerAdapter {
 		}
 	}
 
-	private void uploadScheduled(SlashCommandInteractionEvent event) {
-		thread = new Thread(() -> {
-			while (!scheduledPublications.isEmpty()) {
-				System.out.printf("[+] Post/álbumes programados: %s %n", scheduledPublications);
-				try {
-					while (LocalDateTime.now().isBefore(scheduledPublications.getFirst().getDate())) {
-						Thread.sleep(Duration.ofMinutes(1));
+	private void uploadScheduled(SlashCommandInteractionEvent event, Scheduled scheduled) {
+		final ZonedDateTime now = DateManager.now();
+		final Duration duration = Duration.between(now, scheduled.getDate());
 
-					}
-				} catch (InterruptedException e) {
-					MessageManager.sendMessage(event, Messages.GENERIC);
-					e.printStackTrace();
-				}
+		System.out.println("hola");
 
-				Scheduled first = scheduledPublications.getFirst();
+		scheduler.schedule(() -> {
+			System.out.printf("[+] Post/álbumes programados: %s %n", scheduledPublications);
 
-				if (first instanceof ScheduledPost) {
-					ScheduledPost post = (ScheduledPost) first;
-
-					uploadFile(post.getEvent(), post);
-				} else {
-					ScheduledAlbum album = (ScheduledAlbum) first;
-					uploadAlbum(event, album);
-				}
-
-				scheduledPublications.removeFirst();
+			if (scheduled instanceof ScheduledPost) {
+				uploadFile(event, (ScheduledPost) scheduled);
+			} else {
+				uploadAlbum(event, (ScheduledAlbum) scheduled);
 			}
-		});
 
-		thread.start();
+		}, duration.toSeconds(), TimeUnit.SECONDS);
+
 	}
 
 	private void uploadFile(SlashCommandInteractionEvent event, Post p) {
@@ -394,11 +350,10 @@ public class Bot extends ListenerAdapter {
 
 		album.clearFiles();
 		System.out.println("[+] Álbum subido correctamente.");
-
 	}
 
-	private LocalDateTime getDateFromParameters(SlashCommandInteractionEvent event) {
-		final LocalDateTime now = LocalDateTime.now();
+	private ZonedDateTime getDateFromParameters(SlashCommandInteractionEvent event) {
+		final ZonedDateTime now = DateManager.now();
 
 		int day = Objects.requireNonNullElse(event.getOption(Parameters.day.name(), OptionMapping::getAsInt),
 				now.getDayOfMonth());
@@ -412,7 +367,8 @@ public class Bot extends ListenerAdapter {
 		int minute = Objects.requireNonNullElse(event.getOption(Parameters.minute.name(), OptionMapping::getAsInt),
 				now.getMinute());
 
-		return Objects.requireNonNullElse(LocalDateTime.of(year, month, day, hour, minute, 0), now);
+		return Objects.requireNonNullElse(
+				ZonedDateTime.of(year, month, day, hour, minute, 0, 0, DateManager.SPAIN_ZONE), now);
 	}
 
 	private String processCaptions(String captions) {
@@ -423,13 +379,14 @@ public class Bot extends ListenerAdapter {
 		return captions.replaceAll("%s", "\r\n");
 	}
 
-	private boolean publicationInDate(LocalDateTime ldt) {
+	private boolean publicationHasCorrectDate(ZonedDateTime zdt) {
 		for (Scheduled s : scheduledPublications) {
-			if (s.getDate().equals(ldt)) {
+			if (s.getDate().equals(zdt)) {
 				return true;
 			}
 		}
 
 		return false;
 	}
+
 }

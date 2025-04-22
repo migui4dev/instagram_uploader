@@ -1,20 +1,20 @@
 package discord_bot.model.tasks;
 
-import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 
-import discord_bot.controller.MyDateFormatter;
+import discord_bot.controller.DateManager;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 
 public class ScheduledAlbum extends Album implements Scheduled {
-	private LocalDateTime date;
+	private ZonedDateTime date;
 
-	public ScheduledAlbum(SlashCommandInteractionEvent event, String captions, LocalDateTime date) {
+	public ScheduledAlbum(SlashCommandInteractionEvent event, String captions, ZonedDateTime date) {
 		super(event, captions);
 		this.date = date;
 	}
 
 	@Override
-	public LocalDateTime getDate() {
+	public ZonedDateTime getDate() {
 		return date;
 	}
 
@@ -22,7 +22,7 @@ public class ScheduledAlbum extends Album implements Scheduled {
 	public String toString() {
 		final String filesStr = super.toString();
 
-		return String.format("%s Programado para: %s.", filesStr, MyDateFormatter.formatDate(date));
+		return String.format("%s Programado para: %s.", filesStr, DateManager.formatDate(date));
 	}
 
 }

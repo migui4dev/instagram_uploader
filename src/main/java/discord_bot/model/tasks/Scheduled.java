@@ -1,8 +1,7 @@
 package discord_bot.model.tasks;
 
-import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 
 public interface Scheduled {
-
-	public LocalDateTime getDate();
+	public ZonedDateTime getDate();
 }
