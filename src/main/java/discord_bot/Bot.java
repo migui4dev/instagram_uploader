@@ -316,11 +316,10 @@ public class Bot extends ListenerAdapter {
 			}
 		}
 
+		System.out.printf("[+] %s subido correctamente. %n", isStorie ? "Storie" : "Post");
+
 		FileManager.deleteFile(attFile);
 		FileManager.deleteFile(coverFile);
-
-		System.out.printf("[+] %s subido correctamente.", isStorie ? "Storie" : "Post");
-
 	}
 
 	private void uploadAlbum(SlashCommandInteractionEvent event, Album album) {
@@ -342,6 +341,7 @@ public class Bot extends ListenerAdapter {
 				.uploadAlbum(albumSidecarInfo, String.format("%s", processCaptions(album.getCaptions())))
 				.thenAccept(t -> {
 					MessageManager.sendMessage(event, Messages.ALBUM_UPLOADED);
+					System.out.println("[+] Álbum subido correctamente.");
 				}).exceptionally((t) -> {
 					MessageManager.sendMessage(event, String.format("Ocurrió un error: %s", t));
 					t.printStackTrace();
@@ -349,7 +349,6 @@ public class Bot extends ListenerAdapter {
 				}).join();
 
 		album.clearFiles();
-		System.out.println("[+] Álbum subido correctamente.");
 	}
 
 	private ZonedDateTime getDateFromParameters(SlashCommandInteractionEvent event) {

@@ -36,7 +36,7 @@ public class MessageManager {
 		}
 
 		try {
-			final List<FileUpload> fileUpload = files.stream().map(f -> FileUpload.fromData(f)).toList();
+			final List<FileUpload> fileUpload = files.stream().map(FileUpload::fromData).toList();
 
 			String msg;
 
