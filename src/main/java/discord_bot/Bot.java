@@ -32,7 +32,7 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.342 BETA";
+	public static final String VERSION = "1.343 BETA";
 	private static final int MAX_SCHEDULED_PUBLICATION = 3;
 	private static final int MAX_TRIES = 5;
 	private static final int MIN_ALBUM_SIZE = 2;
@@ -267,7 +267,7 @@ public class Bot extends ListenerAdapter {
 			} else {
 				int tries = 0;
 
-				while (tries <= MAX_TRIES && !albumUploaded) {
+				do {
 					try {
 						System.out.printf("Intentando subir álbum por %dº vez. %n", tries + 1);
 						Thread.sleep(Duration.ofSeconds(tries));
@@ -276,7 +276,7 @@ public class Bot extends ListenerAdapter {
 					}
 
 					uploadAlbum(event, (ScheduledAlbum) scheduled);
-				}
+				} while (++tries <= MAX_TRIES && !albumUploaded);
 			}
 
 		}, duration.toSeconds(), TimeUnit.SECONDS);

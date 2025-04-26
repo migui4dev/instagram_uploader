@@ -36,7 +36,9 @@ public class Main {
 
 			JDA jda = JDABuilder.createDefault(token).addEventListeners(new Bot())
 					.enableIntents(GatewayIntent.MESSAGE_CONTENT)
-					.setActivity(Activity.customStatus(String.format("Versión %s", Bot.VERSION))).build().awaitReady();
+					.setActivity(Activity
+							.customStatus(String.format("Versión %s (%s)", Bot.VERSION, DateManager.getDeployDate())))
+					.build().awaitReady();
 			CommandListUpdateAction commands = jda.updateCommands();
 
 			// POSTS
