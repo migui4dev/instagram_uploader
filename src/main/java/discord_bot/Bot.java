@@ -32,7 +32,8 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.34 BETA";
+	public static final String VERSION = "1.34";
+
 	private static final int MAX_SCHEDULED_PUBLICATION = 5;
 
 	private static final int MIN_ALBUM_SIZE = 2;
@@ -269,6 +270,7 @@ public class Bot extends ListenerAdapter {
 				uploadAlbum(event, (ScheduledAlbum) scheduled);
 			}
 
+			scheduledPublications.remove(scheduled);
 		}, duration.toSeconds(), TimeUnit.SECONDS);
 
 	}
