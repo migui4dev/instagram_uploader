@@ -385,7 +385,9 @@ public class Bot extends ListenerAdapter {
 			MessageManager.sendMessage(event,
 					String.format("Respuesta de Instagram: %s.%n(Probablemente sea una mala resolución de la imagen).",
 							igResponseException.getMessage()));
-			t.printStackTrace();
+			igResponseException.printStackTrace();
+			System.out.println("Mensaje: " + igResponseException.getMessage());
+			System.out.println(igResponseException);
 		} else {
 			MessageManager.sendMessage(event,
 					String.format("Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
