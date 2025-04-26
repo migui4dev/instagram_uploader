@@ -33,20 +33,16 @@ import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
 	public static final String VERSION = "1.342 BETA";
-
 	private static final int MAX_SCHEDULED_PUBLICATION = 3;
-
+	private static final int MAX_TRIES = 5;
 	private static final int MIN_ALBUM_SIZE = 2;
 
 	private final List<Scheduled> scheduledPublications = new ArrayList<>();
-
 	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(MAX_SCHEDULED_PUBLICATION);
 
 	private Album currentAlbum;
-
 	private Member memberUsingBot;
-
-	private boolean success = false;
+	private boolean albumUploaded = false;
 
 	@Override
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
@@ -269,16 +265,20 @@ public class Bot extends ListenerAdapter {
 			if (scheduled instanceof ScheduledPost) {
 				uploadFile(event, (ScheduledPost) scheduled);
 			} else {
-				final int MAX_TRIES = 5;
 				int tries = 0;
 
-				while (tries <= MAX_TRIES && !success) {
-					success = uploadAlbum(event, (ScheduledAlbum) scheduled);
-					tries++;
+				while (tries <= MAX_TRIES && !albumUploaded) {
+					try {
+						System.out.printf("Intentando subir álbum por %dº vez. %n", tries + 1);
+						Thread.sleep(Duration.ofSeconds(tries));
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+
+					uploadAlbum(event, (ScheduledAlbum) scheduled);
 				}
 			}
 
-			scheduledPublications.remove(scheduled);
 		}, duration.toSeconds(), TimeUnit.SECONDS);
 
 	}
@@ -304,6 +304,10 @@ public class Bot extends ListenerAdapter {
 				SessionManager.getClient().actions().timeline().uploadVideo(attFile, coverFile, captions)
 						.thenAccept(t -> {
 							MessageManager.sendMessage(event, Messages.VIDEO_POST_UPLOADED);
+
+							if (p instanceof ScheduledPost) {
+								scheduledPublications.remove((ScheduledPost) p);
+							}
 						}).exceptionally(t -> exceptionHandler(event, t)).join();
 			}
 		} else {
@@ -314,6 +318,10 @@ public class Bot extends ListenerAdapter {
 			} else {
 				SessionManager.getClient().actions().timeline().uploadPhoto(attFile, captions).thenAccept(t -> {
 					MessageManager.sendMessage(event, Messages.IMAGE_POST_UPLOADED);
+
+					if (p instanceof ScheduledPost) {
+						scheduledPublications.remove((ScheduledPost) p);
+					}
 				}).exceptionally(t -> exceptionHandler(event, t)).join();
 			}
 		}
@@ -324,13 +332,13 @@ public class Bot extends ListenerAdapter {
 		FileManager.deleteFile(coverFile);
 	}
 
-	private boolean uploadAlbum(SlashCommandInteractionEvent event, Album album) {
+	private void uploadAlbum(SlashCommandInteractionEvent event, Album album) {
 		if (SessionManager.getClient() == null || !SessionManager.getClient().isLoggedIn()) {
 			MessageManager.sendMessage(event, "No hay una sesión iniciada.");
-			return false;
+			return;
 		} else if (album.getFiles().size() < MIN_ALBUM_SIZE) {
 			MessageManager.sendMessage(event, "Sólo se pueden subir álbumes con dos o más imágenes.");
-			return false;
+			return;
 		}
 
 		final List<SidecarInfo> albumSidecarInfo = new ArrayList<>();
@@ -343,10 +351,14 @@ public class Bot extends ListenerAdapter {
 				.uploadAlbum(albumSidecarInfo, processCaptions(album.getCaptions())).thenAccept(t -> {
 					MessageManager.sendMessage(event, Messages.ALBUM_UPLOADED);
 					System.out.println("[+] Álbum subido correctamente.");
-					success = true;
+
+					if (album instanceof ScheduledAlbum) {
+						scheduledPublications.remove((ScheduledAlbum) album);
+					}
+
+					albumUploaded = true;
 				}).exceptionally(t -> exceptionHandler(event, t)).join();
 
-		return success;
 	}
 
 	private ZonedDateTime getDateFromParameters(SlashCommandInteractionEvent event) {
