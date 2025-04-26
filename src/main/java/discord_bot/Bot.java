@@ -32,7 +32,7 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.341 BETA";
+	public static final String VERSION = "1.342 BETA";
 
 	private static final int MAX_SCHEDULED_PUBLICATION = 3;
 
@@ -45,6 +45,8 @@ public class Bot extends ListenerAdapter {
 	private Album currentAlbum;
 
 	private Member memberUsingBot;
+
+	private boolean success = false;
 
 	@Override
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
@@ -267,7 +269,13 @@ public class Bot extends ListenerAdapter {
 			if (scheduled instanceof ScheduledPost) {
 				uploadFile(event, (ScheduledPost) scheduled);
 			} else {
-				uploadAlbum(event, (ScheduledAlbum) scheduled);
+				final int MAX_TRIES = 5;
+				int tries = 0;
+
+				while (tries <= MAX_TRIES && !success) {
+					success = uploadAlbum(event, (ScheduledAlbum) scheduled);
+					tries++;
+				}
 			}
 
 			scheduledPublications.remove(scheduled);
@@ -316,13 +324,13 @@ public class Bot extends ListenerAdapter {
 		FileManager.deleteFile(coverFile);
 	}
 
-	private void uploadAlbum(SlashCommandInteractionEvent event, Album album) {
+	private boolean uploadAlbum(SlashCommandInteractionEvent event, Album album) {
 		if (SessionManager.getClient() == null || !SessionManager.getClient().isLoggedIn()) {
 			MessageManager.sendMessage(event, "No hay una sesión iniciada.");
-			return;
+			return false;
 		} else if (album.getFiles().size() < MIN_ALBUM_SIZE) {
 			MessageManager.sendMessage(event, "Sólo se pueden subir álbumes con dos o más imágenes.");
-			return;
+			return false;
 		}
 
 		final List<SidecarInfo> albumSidecarInfo = new ArrayList<>();
@@ -332,13 +340,13 @@ public class Bot extends ListenerAdapter {
 		}
 
 		SessionManager.getClient().actions().timeline()
-				.uploadAlbum(albumSidecarInfo, String.format("%s", processCaptions(album.getCaptions())))
-				.thenAccept(t -> {
+				.uploadAlbum(albumSidecarInfo, processCaptions(album.getCaptions())).thenAccept(t -> {
 					MessageManager.sendMessage(event, Messages.ALBUM_UPLOADED);
 					System.out.println("[+] Álbum subido correctamente.");
+					success = true;
 				}).exceptionally(t -> exceptionHandler(event, t)).join();
 
-		album.clearFiles();
+		return success;
 	}
 
 	private ZonedDateTime getDateFromParameters(SlashCommandInteractionEvent event) {
