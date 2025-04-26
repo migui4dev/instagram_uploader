@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarInfo;
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarPhoto;
+import com.github.instagram4j.instagram4j.exceptions.IGResponseException;
 
 import discord_bot.controller.DateManager;
 import discord_bot.controller.FileManager;
@@ -31,13 +32,14 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.33";
+	public static final String VERSION = "1.34 BETA";
+	private static final int MAX_SCHEDULED_PUBLICATION = 5;
 
 	private static final int MIN_ALBUM_SIZE = 2;
 
 	private final List<Scheduled> scheduledPublications = new ArrayList<>();
 
-	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(MAX_SCHEDULED_PUBLICATION);
 
 	private Album currentAlbum;
 
@@ -239,14 +241,24 @@ public class Bot extends ListenerAdapter {
 				MessageManager.sendMessage(event, "En el índice seleccionado no hay un álbum.");
 			}
 		}
+
+		case "queue_size" -> {
+			MessageManager.sendMessage(event, String.format("Hay %d/%d publicaciones programadas.",
+					scheduledPublications.size(), MAX_SCHEDULED_PUBLICATION));
+		}
 		}
 	}
 
 	private void uploadScheduled(SlashCommandInteractionEvent event, Scheduled scheduled) {
+		if (scheduledPublications.size() >= MAX_SCHEDULED_PUBLICATION) {
+			MessageManager.sendMessage(event,
+					String.format("Ya se ha alcanzado el valor máximo de publicaciones programadas (%d).",
+							scheduledPublications.size()));
+			return;
+		}
+
 		final ZonedDateTime now = DateManager.now();
 		final Duration duration = Duration.between(now, scheduled.getDate());
-
-		System.out.println("hola");
 
 		scheduler.schedule(() -> {
 			System.out.printf("[+] Post/álbumes programados: %s %n", scheduledPublications);
@@ -277,42 +289,22 @@ public class Bot extends ListenerAdapter {
 			if (isStorie) {
 				SessionManager.getClient().actions().story().uploadVideo(attFile, coverFile).thenAccept(t -> {
 					MessageManager.sendMessage(event, Messages.VIDEO_STORIE_UPLOADED);
-				}).exceptionally(t -> {
-					MessageManager.sendMessage(event, String
-							.format("Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
-					t.printStackTrace();
-					return null;
-				}).join();
+				}).exceptionally(t -> exceptionHandler(event, t)).join();
 			} else {
 				SessionManager.getClient().actions().timeline().uploadVideo(attFile, coverFile, captions)
 						.thenAccept(t -> {
 							MessageManager.sendMessage(event, Messages.VIDEO_POST_UPLOADED);
-						}).exceptionally(t -> {
-							MessageManager.sendMessage(event, String.format(
-									"Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
-							t.printStackTrace();
-							return null;
-						}).join();
+						}).exceptionally(t -> exceptionHandler(event, t)).join();
 			}
 		} else {
 			if (isStorie) {
 				SessionManager.getClient().actions().story().uploadPhoto(attFile).thenAccept(t -> {
 					MessageManager.sendMessage(event, Messages.IMAGE_STORIE_UPLOADED);
-				}).exceptionally(t -> {
-					MessageManager.sendMessage(event, String
-							.format("Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
-					t.printStackTrace();
-					return null;
-				}).join();
+				}).exceptionally(t -> exceptionHandler(event, t)).join();
 			} else {
 				SessionManager.getClient().actions().timeline().uploadPhoto(attFile, captions).thenAccept(t -> {
 					MessageManager.sendMessage(event, Messages.IMAGE_POST_UPLOADED);
-				}).exceptionally(t -> {
-					MessageManager.sendMessage(event, String
-							.format("Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
-					t.printStackTrace();
-					return null;
-				}).join();
+				}).exceptionally(t -> exceptionHandler(event, t)).join();
 			}
 		}
 
@@ -342,11 +334,7 @@ public class Bot extends ListenerAdapter {
 				.thenAccept(t -> {
 					MessageManager.sendMessage(event, Messages.ALBUM_UPLOADED);
 					System.out.println("[+] Álbum subido correctamente.");
-				}).exceptionally((t) -> {
-					MessageManager.sendMessage(event, String.format("Ocurrió un error: %s", t));
-					t.printStackTrace();
-					return null;
-				}).join();
+				}).exceptionally(t -> exceptionHandler(event, t)).join();
 
 		album.clearFiles();
 	}
@@ -386,6 +374,22 @@ public class Bot extends ListenerAdapter {
 		}
 
 		return false;
+	}
+
+	private Void exceptionHandler(SlashCommandInteractionEvent event, Throwable t) {
+		if (t.getCause() instanceof IGResponseException) {
+			IGResponseException igResponseException = (IGResponseException) t.getCause();
+
+			MessageManager.sendMessage(event,
+					String.format("Respuesta de Instagram: %s.%n(Probablemente sea una mala resolución de la imagen).",
+							igResponseException.getMessage()));
+		} else {
+			MessageManager.sendMessage(event,
+					String.format("Ocurrió un error: %s.%n(Probablemente sea una mala resolución de la imagen).", t));
+			t.printStackTrace();
+		}
+
+		return null;
 	}
 
 }

@@ -1,8 +1,0 @@
-+ Añadir más prints para informar por consola y hacer debug.
-+ Poner un if en el logout para impedir que se cierre sesión si hay una tarea programada.
-+ Quitar el parámetro de 'parámetros', ya que ahora es una propiedad de la clase y no tiene sentido pasarlo por parámetro.
-
-+ Añadir soporte para que se puedan subir álbumes programados.
-+ Dejar que en la biografía se puedan poner enters.
-+ Separar todo en clases para que esté más ordenado.
-

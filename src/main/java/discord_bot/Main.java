@@ -19,7 +19,7 @@ public class Main {
 		System.out.printf("Versión %s %n", Bot.VERSION);
 
 		Spark.port(8000);
-		Spark.get("/", (res, req) -> String.format("Bot funcionando desde %s con versión %s %n",
+		Spark.get("/", (req, res) -> String.format("Bot funcionando desde %s con versión %s %n",
 				DateManager.getDeployDate(), Bot.VERSION));
 
 		try {
@@ -109,6 +109,8 @@ public class Main {
 			commands.addCommands(
 					Commands.slash("show_queue", "If index not specified, it shows the first queue element.")
 							.addOption(OptionType.INTEGER, Parameters.index.name(), "Index of element", false));
+
+			commands.addCommands(Commands.slash("queue_size", "It shows you the size of scheduled publication queue."));
 
 			commands.queue();
 
