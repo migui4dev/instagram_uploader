@@ -1,4 +1,4 @@
-package discord_bot.model.tasks;
+package discord_bot.model.publications;
 
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 

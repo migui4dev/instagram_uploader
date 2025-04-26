@@ -1,4 +1,4 @@
-package discord_bot.model.tasks;
+package discord_bot.model.publications;
 
 import java.io.File;
 import java.time.ZonedDateTime;

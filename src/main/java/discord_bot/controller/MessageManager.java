@@ -5,9 +5,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 import discord_bot.model.Messages;
-import discord_bot.model.tasks.Album;
-import discord_bot.model.tasks.Post;
-import discord_bot.model.tasks.Publication;
+import discord_bot.model.publications.Album;
+import discord_bot.model.publications.Post;
+import discord_bot.model.publications.Publication;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.utils.FileUpload;
 

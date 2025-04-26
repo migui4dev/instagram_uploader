@@ -20,11 +20,11 @@ import discord_bot.controller.MessageManager;
 import discord_bot.controller.SessionManager;
 import discord_bot.model.Messages;
 import discord_bot.model.Parameters;
-import discord_bot.model.tasks.Album;
-import discord_bot.model.tasks.Post;
-import discord_bot.model.tasks.Scheduled;
-import discord_bot.model.tasks.ScheduledAlbum;
-import discord_bot.model.tasks.ScheduledPost;
+import discord_bot.model.publications.Album;
+import discord_bot.model.publications.Post;
+import discord_bot.model.publications.Scheduled;
+import discord_bot.model.publications.ScheduledAlbum;
+import discord_bot.model.publications.ScheduledPost;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message.Attachment;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -32,9 +32,9 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.34";
+	public static final String VERSION = "1.341 BETA";
 
-	private static final int MAX_SCHEDULED_PUBLICATION = 5;
+	private static final int MAX_SCHEDULED_PUBLICATION = 3;
 
 	private static final int MIN_ALBUM_SIZE = 2;
 
