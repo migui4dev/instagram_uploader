@@ -11,16 +11,11 @@ import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 import net.dv8tion.jda.internal.utils.JDALogger;
-import spark.Spark;
 
 public class Main {
 
 	public static void main(String[] args) {
 		System.out.printf("Versión %s %n", Bot.VERSION);
-
-		Spark.port(8000);
-		Spark.get("/", (req, res) -> String.format("Bot funcionando desde %s con versión %s %n",
-				DateManager.getDeployDate(), Bot.VERSION));
 
 		try {
 			String token = null;

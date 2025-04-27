@@ -29,17 +29,16 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
-	public static final String VERSION = "1.343 BETA";
-	private static final int MAX_SCHEDULED_PUBLICATION = 2;
-	private static final int MAX_TRIES = 5;
+	public static final String VERSION = "1.35 BETA";
+	private static final int MAX_SCHEDULED_PUBLICATION = 7;
 	private static final int MIN_ALBUM_SIZE = 2;
+	private static final Duration TIME_TO_WAIT = Duration.ofSeconds(1);
 
 	private final List<Scheduled> scheduledPublications = new ArrayList<>();
 //	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(MAX_SCHEDULED_PUBLICATION);
 
 	private Album currentAlbum;
 	private Member memberUsingBot;
-	private boolean albumUploaded = false;
 
 	@Override
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
@@ -255,30 +254,22 @@ public class Bot extends ListenerAdapter {
 
 		new Thread(() -> {
 			final ZonedDateTime dateToSchedule = scheduled.getDate();
+
 			while (DateManager.now().isBefore(dateToSchedule)) {
 				try {
-					Thread.sleep(Duration.ofSeconds(10));
+					Thread.sleep(TIME_TO_WAIT);
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
 			}
+
+			System.out.printf("[+] Post/álbumes programados: %s %n", scheduledPublications);
+
 			if (scheduled instanceof ScheduledPost) {
 				uploadFile(event, (ScheduledPost) scheduled);
 			} else {
-				int tries = 0;
-
-				do {
-					try {
-						System.out.printf("[!] Intentando subir álbum por %dº vez. %n", tries + 1);
-						Thread.sleep(Duration.ofSeconds(tries));
-					} catch (InterruptedException e) {
-						e.printStackTrace();
-					}
-
-					uploadAlbum(event, (ScheduledAlbum) scheduled);
-				} while (++tries < MAX_TRIES && !albumUploaded);
+				uploadAlbum(event, (ScheduledAlbum) scheduled);
 			}
-
 		}).start();
 
 //		final ZonedDateTime now = DateManager.now();
@@ -290,20 +281,8 @@ public class Bot extends ListenerAdapter {
 //			if (scheduled instanceof ScheduledPost) {
 //				uploadFile(event, (ScheduledPost) scheduled);
 //			} else {
-//				int tries = 0;
-//
-//				do {
-//					try {
-//						System.out.printf("[!] Intentando subir álbum por %dº vez. %n", tries + 1);
-//						Thread.sleep(Duration.ofSeconds(tries));
-//					} catch (InterruptedException e) {
-//						e.printStackTrace();
-//					}
-//
-//					uploadAlbum(event, (ScheduledAlbum) scheduled);
-//				} while (++tries < MAX_TRIES && !albumUploaded);
+//				uploadAlbum(event, (ScheduledAlbum) scheduled);
 //			}
-//
 //		}, duration.toSeconds(), TimeUnit.SECONDS);
 
 	}
@@ -332,6 +311,7 @@ public class Bot extends ListenerAdapter {
 
 							if (p instanceof ScheduledPost) {
 								scheduledPublications.remove((ScheduledPost) p);
+								System.gc();
 							}
 						}).exceptionally(t -> exceptionHandler(event, t)).join();
 			}
@@ -346,6 +326,7 @@ public class Bot extends ListenerAdapter {
 
 					if (p instanceof ScheduledPost) {
 						scheduledPublications.remove((ScheduledPost) p);
+						System.gc();
 					}
 				}).exceptionally(t -> exceptionHandler(event, t)).join();
 			}
@@ -379,9 +360,8 @@ public class Bot extends ListenerAdapter {
 
 					if (album instanceof ScheduledAlbum) {
 						scheduledPublications.remove((ScheduledAlbum) album);
+						System.gc();
 					}
-
-					albumUploaded = true;
 				}).exceptionally(t -> exceptionHandler(event, t)).join();
 
 	}
