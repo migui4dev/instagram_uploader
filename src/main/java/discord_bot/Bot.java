@@ -6,9 +6,6 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarInfo;
 import com.github.instagram4j.instagram4j.actions.timeline.TimelineAction.SidecarPhoto;
@@ -33,12 +30,12 @@ import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 public class Bot extends ListenerAdapter {
 	public static final String VERSION = "1.343 BETA";
-	private static final int MAX_SCHEDULED_PUBLICATION = 3;
+	private static final int MAX_SCHEDULED_PUBLICATION = 2;
 	private static final int MAX_TRIES = 5;
 	private static final int MIN_ALBUM_SIZE = 2;
 
 	private final List<Scheduled> scheduledPublications = new ArrayList<>();
-	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(MAX_SCHEDULED_PUBLICATION);
+//	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(MAX_SCHEDULED_PUBLICATION);
 
 	private Album currentAlbum;
 	private Member memberUsingBot;
@@ -256,12 +253,15 @@ public class Bot extends ListenerAdapter {
 			return;
 		}
 
-		final ZonedDateTime now = DateManager.now();
-		final Duration duration = Duration.between(now, scheduled.getDate());
-
-		scheduler.schedule(() -> {
-			System.out.printf("[+] Post/álbumes programados: %s %n", scheduledPublications);
-
+		new Thread(() -> {
+			final ZonedDateTime dateToSchedule = scheduled.getDate();
+			while (DateManager.now().isBefore(dateToSchedule)) {
+				try {
+					Thread.sleep(Duration.ofSeconds(10));
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
 			if (scheduled instanceof ScheduledPost) {
 				uploadFile(event, (ScheduledPost) scheduled);
 			} else {
@@ -269,17 +269,42 @@ public class Bot extends ListenerAdapter {
 
 				do {
 					try {
-						System.out.printf("Intentando subir álbum por %dº vez. %n", tries + 1);
+						System.out.printf("[!] Intentando subir álbum por %dº vez. %n", tries + 1);
 						Thread.sleep(Duration.ofSeconds(tries));
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
 
 					uploadAlbum(event, (ScheduledAlbum) scheduled);
-				} while (++tries <= MAX_TRIES && !albumUploaded);
+				} while (++tries < MAX_TRIES && !albumUploaded);
 			}
 
-		}, duration.toSeconds(), TimeUnit.SECONDS);
+		}).start();
+
+//		final ZonedDateTime now = DateManager.now();
+//		final Duration duration = Duration.between(now, scheduled.getDate());
+//
+//		scheduler.schedule(() -> {
+//			System.out.printf("[+] Post/álbumes programados: %s %n", scheduledPublications);
+//
+//			if (scheduled instanceof ScheduledPost) {
+//				uploadFile(event, (ScheduledPost) scheduled);
+//			} else {
+//				int tries = 0;
+//
+//				do {
+//					try {
+//						System.out.printf("[!] Intentando subir álbum por %dº vez. %n", tries + 1);
+//						Thread.sleep(Duration.ofSeconds(tries));
+//					} catch (InterruptedException e) {
+//						e.printStackTrace();
+//					}
+//
+//					uploadAlbum(event, (ScheduledAlbum) scheduled);
+//				} while (++tries < MAX_TRIES && !albumUploaded);
+//			}
+//
+//		}, duration.toSeconds(), TimeUnit.SECONDS);
 
 	}
 
